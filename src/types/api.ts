@@ -30,3 +30,44 @@ export interface LoginResponse {
   tokens: AuthTokens;
   role: 'ADMIN' | 'SUPER_ADMIN' | 'DEVELOPER';
 }
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string;
+  key: string;
+  status: string;
+  deadline: string;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectPayload {
+  name: string;
+  key: string;
+  description: string;
+  deadline: string;
+}
+
+export interface UpdateProjectPayload {
+  name?: string;
+  key?: string;
+  description?: string;
+  status?: string;
+  deadline?: string;
+}
+
+export interface PaginatedMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  meta: PaginatedMeta;
+}
