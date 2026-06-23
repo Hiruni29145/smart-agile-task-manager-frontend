@@ -8,6 +8,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useRole, type Role } from "@/lib/role";
 import { useTheme } from "@/lib/theme";
 import { Moon, Sun } from "lucide-react";
+import { useLogin } from "@/hooks/queries/useAuth";
+
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({ component: Login });
 
@@ -15,13 +18,49 @@ function Login() {
   const navigate = useNavigate();
   const { setRole } = useRole();
   const { theme, toggle } = useTheme();
+  
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [role, setLocalRole] = useState<Role>("manager");
+  
+  const loginMutation = useLogin();
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    setRole(role);
-    navigate({ to: role === "manager" ? "/app/dashboard" : "/dev/dashboard" });
+    
+    if (!email || !password) {
+      toast.error("Please enter both email and password.");
+      return;
+    }
+
+    loginMutation.mutate({ email, password }, {
+      onSuccess: async (loginResponse) => {
+        // 1. Save tokens
+        const tokens = loginResponse.data.tokens;
+        if (tokens?.accessToken) {
+          localStorage.setItem("accessToken", tokens.accessToken);
+        }
+        if (tokens?.refreshToken) {
+          localStorage.setItem("refreshToken", tokens.refreshToken);
+        }
+
+        const userRole = loginResponse.data.role;
+
+        // 2. Identify Role and Redirect
+        if (userRole === "SUPER_ADMIN" || userRole === "ADMIN") {
+          setRole("manager");
+          navigate({ to: "/app/dashboard" });
+        } else if (userRole === "DEVELOPER") {
+          setRole("developer");
+          navigate({ to: "/dev/dashboard" });
+        } else {
+          toast.error("Unknown user role.");
+        }
+      },
+      onError: (error: any) => {
+        toast.error(error.message || "Login failed. Please check your credentials.");
+      }
+    });
   };
 
   return (
@@ -64,7 +103,7 @@ function Login() {
           </div>
         </div>
 
-        <div className="text-xs text-muted-foreground">© 2026 Agilix Labs · Demo build</div>
+        <div className="text-xs text-muted-foreground">© 2026 Agilix Labs</div>
       </div>
 
       {/* RIGHT: Login card */}
@@ -89,30 +128,28 @@ function Login() {
             <p className="text-sm text-muted-foreground mt-1">Sign in to continue to your workspace.</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-muted">
-            {(["manager", "developer"] as Role[]).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setLocalRole(r)}
-                className={`h-9 rounded-md text-sm font-medium transition ${
-                  role === r ? "bg-card shadow-sm" : "text-muted-foreground"
-                }`}
-              >
-                {r === "manager" ? "Project Manager" : "Developer"}
-              </button>
-            ))}
-          </div>
-
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" defaultValue="alex@agilix.app" />
+              <Input 
+                id="email" 
+                type="email" 
+                placeholder="name@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loginMutation.isPending}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pw">Password</Label>
               <div className="relative">
-                <Input id="pw" type={showPw ? "text" : "password"} defaultValue="demo-password" />
+                <Input 
+                  id="pw" 
+                  type={showPw ? "text" : "password"} 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loginMutation.isPending}
+                />
                 <button type="button" onClick={() => setShowPw((s) => !s)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showPw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -121,19 +158,15 @@ function Login() {
             </div>
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Checkbox defaultChecked /> Remember me
+                <Checkbox defaultChecked disabled={loginMutation.isPending} /> Remember me
               </label>
               <button type="button" className="text-sm text-primary hover:underline">Forgot password?</button>
             </div>
           </div>
 
-          <Button type="submit" className="w-full gap-2">
-            Sign in <ArrowRight className="size-4" />
+          <Button type="submit" className="w-full gap-2" disabled={loginMutation.isPending}>
+            {loginMutation.isPending ? "Signing in..." : "Sign in"} <ArrowRight className="size-4" />
           </Button>
-
-          <p className="text-xs text-center text-muted-foreground">
-            Demo only · No real authentication
-          </p>
         </form>
       </div>
     </div>
