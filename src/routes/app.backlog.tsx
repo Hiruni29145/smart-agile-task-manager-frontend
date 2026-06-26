@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { apiClient } from "@/api/client";
 import { tasks, memberById, projects, members } from "@/lib/mock";
-import { useState } from "react";
-import { Plus, Search, Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Search, Sparkles, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,6 +13,10 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -26,29 +31,101 @@ import { MoreHorizontal, Trash2 } from "lucide-react";
 export const Route = createFileRoute("/app/backlog")({ component: Backlog });
 
 function Backlog() {
-  const [localTasks, setLocalTasks] = useState(tasks);
+  const [localTasks, setLocalTasks] = useState<any[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+
+  useEffect(() => {
+    async function fetchTasks() {
+      try {
+        const res = await apiClient<any>('/api/v1/tasks?page=1&limit=20');
+        if (res.success && res.data && res.data.items) {
+          const mapped = res.data.items.map((t: any) => ({
+            ...t,
+            id: t.id.toString(),
+            aiHours: t.estimatedTime,
+            assignee: t.assigneeId,
+            status: t.status.toLowerCase(),
+            type: t.type ? t.type.charAt(0).toUpperCase() + t.type.slice(1).toLowerCase() : "Feature"
+          }));
+          setLocalTasks(mapped);
+        }
+      } catch (e) {
+        console.error("Failed to fetch tasks", e);
+      } finally {
+        setLoadingTasks(false);
+      }
+    }
+    fetchTasks();
+  }, []);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   
   const [q, setQ] = useState("");
   const [priority, setPriority] = useState("all");
   const [type, setType] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
+  const [apiProjects, setApiProjects] = useState<any[]>([]);
+
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        const response = await apiClient<any>('/api/v1/projects?page=1&limit=10');
+        if (response.success && response.data && response.data.items) {
+          setApiProjects(response.data.items);
+        }
+      } catch (e) {
+        console.error("Failed to fetch projects", e);
+      }
+    }
+    fetchProjects();
+  }, []);
 
   const filtered = localTasks.filter((t) =>
     t.title.toLowerCase().includes(q.toLowerCase()) &&
-    (priority === "all" || t.priority === priority) &&
-    (type === "all" || t.type === type) &&
-    (projectFilter === "all" || (t as any).projectId === projectFilter || !(t as any).projectId)
+    (priority === "all" || (t.priority && t.priority.toLowerCase() === priority.toLowerCase())) &&
+    (type === "all" || (t.type && t.type.toLowerCase() === type.toLowerCase())) &&
+    (projectFilter === "all" || (t as any).projectId?.toString() === projectFilter.toString() || !(t as any).projectId)
   );
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    // Optimistic local update
     setLocalTasks(prev => prev.filter(t => t.id !== id));
-    toast.success("Task deleted");
+    
+    try {
+      const response = await apiClient<any>(`/api/v1/tasks/${id}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.success || response.statusCode === 200) {
+        toast.success("Task deleted successfully");
+      } else {
+        toast.error(response.message || "Failed to delete task");
+      }
+    } catch (e: any) {
+      console.error("Task deletion error", e);
+      toast.error("An error occurred while deleting task");
+    }
   };
 
-  const handleStatusChange = (id: string, newStatus: string) => {
+  const handleStatusChange = async (id: string, newStatus: string) => {
+    // Optimistic local update
     setLocalTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
-    toast.success("Status updated");
+    
+    try {
+      const response = await apiClient<any>(`/api/v1/tasks/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus.toUpperCase() })
+      });
+      
+      if (response.success || response.statusCode === 200) {
+        toast.success("Status updated successfully");
+      } else {
+        toast.error(response.message || "Failed to update status");
+      }
+    } catch (e: any) {
+      console.error("Status update error", e);
+      toast.error("An error occurred while updating status");
+    }
   };
 
   const selectedTask = localTasks.find(t => t.id === selectedTaskId);
@@ -69,7 +146,7 @@ function Backlog() {
             <SelectTrigger className="w-[220px] bg-card border-dashed"><SelectValue placeholder="Select Project" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Projects</SelectItem>
-              {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+              {apiProjects.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <CreateTaskDialog onAdd={(t) => setLocalTasks([t, ...localTasks])} />
@@ -112,13 +189,16 @@ function Backlog() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((t) => {
-              const m = memberById(t.assignee)!;
+            {loadingTasks ? (
+              <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Loading tasks...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No tasks found.</td></tr>
+            ) : filtered.map((t) => {
+              const m = memberById(t.assignee) || { name: "Assigned User", avatar: "" };
               return (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors group">
                   <td className="p-4 font-medium">
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => setSelectedTaskId(t.id)}>
-                      <span className="text-muted-foreground text-xs font-mono bg-muted/50 px-1.5 py-0.5 rounded group-hover:bg-primary/10 group-hover:text-primary transition-colors">#{t.id}</span>
                       <span className="group-hover:underline decoration-primary/30 underline-offset-4 line-clamp-1">{t.title}</span>
                     </div>
                   </td>
@@ -150,16 +230,14 @@ function Backlog() {
                     </Select>
                   </td>
                   <td className="p-4 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 transition-opacity"><MoreHorizontal className="size-4" /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem className="text-destructive focus:bg-destructive/10" onClick={() => handleDelete(t.id)}>
-                          <Trash2 className="size-4 mr-2" /> Delete Task
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={(e) => { e.stopPropagation(); setTaskToDelete(t.id); }}
+                      className="size-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
                   </td>
                 </tr>
               );
@@ -233,6 +311,29 @@ function Backlog() {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={!!taskToDelete} onOpenChange={(open) => !open && setTaskToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the task.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (taskToDelete) handleDelete(taskToDelete);
+                setTaskToDelete(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -241,37 +342,161 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
-  const [proj, setProj] = useState(projects[0].id);
-  const [assignee, setAssignee] = useState(members[0].id);
-  const [prio, setPrio] = useState("Medium");
-  const [type, setType] = useState("Feature");
-  const [showPreview, setShowPreview] = useState(false);
-  const aiH = Math.max(2, title.length * 0.4);
+  const [proj, setProj] = useState("");
+  const [apiProjects, setApiProjects] = useState<any[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  
+  const [assignee, setAssignee] = useState("");
+  const [apiAssignees, setApiAssignees] = useState<any[]>([]);
+  const [loadingAssignees, setLoadingAssignees] = useState(true);
+  
+  const [sprint, setSprint] = useState("");
+  const [apiSprints, setApiSprints] = useState<any[]>([]);
+  const [loadingSprints, setLoadingSprints] = useState(true);
 
-  const handleCreate = () => {
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        const response = await apiClient<any>('/api/v1/projects?page=1&limit=10');
+        if (response.success && response.data && response.data.items) {
+          setApiProjects(response.data.items);
+          if (response.data.items.length > 0) {
+             setProj(response.data.items[0].id.toString());
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch projects", e);
+      } finally {
+        setLoadingProjects(false);
+      }
+    }
+    fetchProjects();
+  }, []);
+  
+  useEffect(() => {
+    async function fetchSprints() {
+      try {
+        const response = await apiClient<any>('/api/v1/sprints?page=1&limit=10');
+        if (response.success && response.data && response.data.items) {
+          setApiSprints(response.data.items);
+          if (response.data.items.length > 0) {
+             setSprint(response.data.items[0].id.toString());
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch sprints", e);
+      } finally {
+        setLoadingSprints(false);
+      }
+    }
+    fetchSprints();
+  }, []);
+  
+  useEffect(() => {
+    async function fetchAssignees() {
+      try {
+        const response = await apiClient<any>('/api/v1/teams/members');
+        if (response.success && response.data && response.data.items) {
+          setApiAssignees(response.data.items);
+          if (response.data.items.length > 0) {
+             setAssignee(response.data.items[0].id.toString());
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch assignees", e);
+      } finally {
+        setLoadingAssignees(false);
+      }
+    }
+    fetchAssignees();
+  }, []);
+  
+  const [prio, setPrio] = useState("HIGH");
+  const [status, setStatus] = useState("TODO");
+  const [deadline, setDeadline] = useState("2026-06-25");
+  const [showPreview, setShowPreview] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [aiEst, setAiEst] = useState({
+    storyPoints: 0,
+    estimatedTime: 0,
+    complexity: 0,
+    confidence: 0
+  });
+
+  const handleGenerateAi = () => {
+    setAiEst({
+      storyPoints: 5,
+      estimatedTime: 8.5,
+      complexity: 7,
+      confidence: 90
+    });
+    setShowPreview(true);
+  };
+
+  const handleCreate = async () => {
     if (!title) { toast.error("Title required"); return; }
-    const t = {
-      id: `T-${Math.floor(Math.random() * 9000) + 1000}`,
-      title,
-      description: desc || "No description provided.",
-      priority: prio as any,
-      type: type as any,
-      aiHours: parseFloat(aiH.toFixed(1)),
-      storyPoints: aiH < 6 ? 3 : aiH < 12 ? 5 : 8,
-      assignee,
-      status: "todo" as any,
-      confidence: 87,
-      complexity: aiH < 6 ? "Low" : aiH < 12 ? "Medium" : "High",
-      projectId: proj,
-    };
-    onAdd?.(t);
-    toast.success("Task created and estimated via AI!");
-    setOpen(false);
     
-    // Reset
-    setTitle("");
-    setDesc("");
-    setShowPreview(false);
+    setIsSubmitting(true);
+    
+    // Construct the requested payload
+    const payload = {
+      title,
+      projectId: parseInt(proj, 10),
+      description: desc || "No description provided.",
+      sprintId: parseInt(sprint, 10),
+      assigneeId: assignee,
+      priority: prio,
+      status: status,
+      storyPoints: aiEst.storyPoints,
+      estimatedTime: aiEst.estimatedTime,
+      complexity: aiEst.complexity,
+      confidence: aiEst.confidence,
+      deadline
+    };
+    
+    try {
+      const response = await apiClient<any>('/api/v1/tasks', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      
+      if (response.success || response.statusCode === 201) {
+        toast.success("Task created successfully!");
+        
+        // Fallback task object to allow the local table to keep rendering without breaking
+        const t = {
+          id: `T-${Math.floor(Math.random() * 9000) + 1000}`,
+          title: payload.title,
+          description: payload.description,
+          priority: payload.priority,
+          type: "Feature" as any, // keep type to prevent table break
+          aiHours: payload.estimatedTime,
+          storyPoints: payload.storyPoints,
+          assignee: payload.assigneeId,
+          status: payload.status.toLowerCase(), // mapping status for local table
+          confidence: payload.confidence,
+          complexity: payload.complexity >= 7 ? "High" : "Medium",
+          projectId: proj,
+        };
+        
+        onAdd?.(t);
+        setOpen(false);
+        
+        // Reset state
+        setTitle("");
+        setDesc("");
+        setShowPreview(false);
+        setAiEst({ storyPoints: 0, estimatedTime: 0, complexity: 0, confidence: 0 });
+      } else {
+         toast.error(response.message || "Failed to create task");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "An error occurred while creating the task");
+      console.error("Create task error:", e);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -287,27 +512,46 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
             <div>
               <Label>Project</Label>
               <Select value={proj} onValueChange={setProj}>
-                <SelectTrigger><SelectValue placeholder="Select Project" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={loadingProjects ? "Loading..." : "Select Project"} /></SelectTrigger>
                 <SelectContent>
-                  {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  {apiProjects.map((p) => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
+              <Label>Sprint</Label>
+              <Select value={sprint} onValueChange={setSprint}>
+                <SelectTrigger><SelectValue placeholder={loadingSprints ? "Loading..." : "Select Sprint"} /></SelectTrigger>
+                <SelectContent>
+                  {apiSprints.map((s) => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <Label>Assignee</Label>
               <Select value={assignee} onValueChange={setAssignee}>
-                <SelectTrigger><SelectValue placeholder="Select Assignee" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={loadingAssignees ? "Loading..." : "Select Assignee"} /></SelectTrigger>
                 <SelectContent>
-                  {members.map((m) => (
+                  {apiAssignees.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       <div className="flex items-center gap-2">
-                        <Avatar className="size-5"><AvatarImage src={m.avatar}/><AvatarFallback>{m.name[0]}</AvatarFallback></Avatar>
-                        {m.name}
+                        <Avatar className="size-5">
+                          <AvatarImage src={m.avatar || undefined} />
+                          <AvatarFallback>{m.firstName ? m.firstName[0] : "U"}</AvatarFallback>
+                        </Avatar>
+                        {m.firstName} {m.lastName}
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Deadline</Label>
+              <Input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
             </div>
           </div>
 
@@ -316,37 +560,41 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
               <Label>Priority</Label>
               <Select value={prio} onValueChange={setPrio}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["Low", "Medium", "High", "Critical"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                <SelectContent>{["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Task type</Label>
-              <Select value={type} onValueChange={setType}>
+              <Label>Status</Label>
+              <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["Feature", "Bug", "Chore", "Spike"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                <SelectContent>{["TODO", "IN_PROGRESS", "REVIEW", "DONE"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
 
-          <Button variant="outline" type="button" className="w-full gap-2" onClick={() => setShowPreview(true)}>
+          <Button variant="outline" type="button" className="w-full gap-2" onClick={handleGenerateAi}>
             <Sparkles className="size-4" /> Generate AI estimation
           </Button>
 
           {showPreview && (
             <div className="rounded-lg border bg-gradient-to-br from-primary/5 to-info/5 p-4 animate-in-up">
               <div className="flex items-center gap-2 text-xs font-medium text-primary mb-3">
-                <Sparkles className="size-3.5" /> AI Preview
+                <Sparkles className="size-3.5" /> AI Estimates Preview
               </div>
               <div className="grid grid-cols-4 gap-3 text-center">
-                <div><div className="text-xl font-semibold tabular-nums">{aiH.toFixed(1)}h</div><div className="text-[10px] text-muted-foreground">Estimated</div></div>
-                <div><div className="text-xl font-semibold tabular-nums">{aiH < 6 ? 3 : aiH < 12 ? 5 : 8}</div><div className="text-[10px] text-muted-foreground">Story Points</div></div>
-                <div><div className="text-xl font-semibold">{aiH < 6 ? "Low" : aiH < 12 ? "Med" : "High"}</div><div className="text-[10px] text-muted-foreground">Complexity</div></div>
-                <div><div className="text-xl font-semibold tabular-nums">87%</div><div className="text-[10px] text-muted-foreground">Confidence</div></div>
+                <div><div className="text-xl font-semibold tabular-nums">{aiEst.estimatedTime}h</div><div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Estimated</div></div>
+                <div><div className="text-xl font-semibold tabular-nums">{aiEst.storyPoints}</div><div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Story Pts</div></div>
+                <div><div className="text-xl font-semibold">{aiEst.complexity}</div><div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Complexity</div></div>
+                <div><div className="text-xl font-semibold tabular-nums text-success">{aiEst.confidence}%</div><div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Confidence</div></div>
               </div>
             </div>
           )}
         </div>
-        <DialogFooter><Button onClick={handleCreate}>Create task</Button></DialogFooter>
+        <DialogFooter>
+          <Button onClick={handleCreate} disabled={isSubmitting}>
+            {isSubmitting ? <><Loader2 className="mr-2 size-4 animate-spin" /> Creating...</> : "Create task"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

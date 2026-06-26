@@ -78,6 +78,10 @@ export function PriorityBadge({ p }: { p: string }) {
     Medium: "bg-info/15 text-info",
     High: "bg-warning/20 text-warning-foreground",
     Critical: "bg-destructive/15 text-destructive",
+    LOW: "bg-muted text-muted-foreground",
+    MEDIUM: "bg-info/15 text-info",
+    HIGH: "bg-warning/20 text-warning-foreground",
+    CRITICAL: "bg-destructive/15 text-destructive",
   };
   return <span className={`inline-flex items-center px-2 h-5 rounded text-[10px] font-medium ${m[p]}`}>{p}</span>;
 }

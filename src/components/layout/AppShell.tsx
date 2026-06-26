@@ -33,15 +33,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      {role === "manager" && (
-        <button
-          onClick={() => setIsTaskModalOpen(true)}
-          className="fixed bottom-6 right-6 z-40 size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 grid place-items-center hover:scale-110 active:scale-95 transition-all hover:shadow-xl hover:shadow-primary/40"
-          aria-label="Quick add"
-        >
-          <Plus className="size-6" />
-        </button>
-      )}
+
 
       {/* Global New Task Modal */}
       <Dialog open={isTaskModalOpen} onOpenChange={setIsTaskModalOpen}>
