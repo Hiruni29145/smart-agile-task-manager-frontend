@@ -43,6 +43,8 @@ function Backlog() {
             ...t,
             id: t.id.toString(),
             aiHours: t.estimatedTime,
+            assigneeId: t.assigneeId,
+            assigneeObj: t.assignee,
             assignee: t.assigneeId,
             status: t.status.toLowerCase(),
             type: t.type ? t.type.charAt(0).toUpperCase() + t.type.slice(1).toLowerCase() : "Feature"
@@ -194,7 +196,14 @@ function Backlog() {
             ) : filtered.length === 0 ? (
               <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No tasks found.</td></tr>
             ) : filtered.map((t) => {
-              const m = memberById(t.assignee) || { name: "Assigned User", avatar: "" };
+              let m = { name: "Assigned User", avatar: "" };
+              if (t.assigneeObj && t.assigneeObj.name) {
+                m = { name: t.assigneeObj.name, avatar: t.assigneeObj.avatar || "" };
+              } else if (t.assigneeObj && (t.assigneeObj.firstName || t.assigneeObj.lastName)) {
+                m = { name: `${t.assigneeObj.firstName || ''} ${t.assigneeObj.lastName || ''}`.trim(), avatar: t.assigneeObj.avatar || "" };
+              } else {
+                m = memberById(t.assignee) || m;
+              }
               return (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors group">
                   <td className="p-4 font-medium">
@@ -273,8 +282,13 @@ function Backlog() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Assignee</div>
                     <div className="flex items-center gap-2">
-                      <Avatar className="size-6"><AvatarImage src={memberById(selectedTask.assignee)?.avatar} /><AvatarFallback>U</AvatarFallback></Avatar>
-                      <span className="text-sm font-medium">{memberById(selectedTask.assignee)?.name}</span>
+                      <Avatar className="size-6">
+                        <AvatarImage src={selectedTask.assigneeObj?.avatar || memberById(selectedTask.assignee)?.avatar} />
+                        <AvatarFallback>{(selectedTask.assigneeObj?.name?.[0] || selectedTask.assigneeObj?.firstName?.[0] || memberById(selectedTask.assignee)?.name?.[0] || "U").toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm font-medium">
+                        {selectedTask.assigneeObj?.name || (selectedTask.assigneeObj?.firstName ? `${selectedTask.assigneeObj.firstName} ${selectedTask.assigneeObj.lastName || ''}`.trim() : null) || memberById(selectedTask.assignee)?.name || "Assigned User"}
+                      </span>
                     </div>
                   </div>
                   <div className="space-y-1">

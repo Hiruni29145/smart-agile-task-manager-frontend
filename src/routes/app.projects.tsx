@@ -256,21 +256,18 @@ function Projects() {
                 <div className="mt-5">
                   <div className="flex items-center justify-between text-xs mb-2">
                     <span className="font-medium text-muted-foreground">Progress</span>
-                    <span className="font-semibold tabular-nums">0%</span>
+                    <span className="font-semibold tabular-nums">{p.progress || 0}%</span>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-primary transition-all duration-1000 ease-out" style={{ width: `0%` }} />
+                    <div className="h-full bg-primary transition-all duration-1000 ease-out" style={{ width: `${p.progress || 0}%` }} />
                   </div>
                 </div>
                 <div className="mt-5 pt-4 border-t flex items-center justify-between">
                   <div className="flex -space-x-2">
                     <Avatar className="size-8 border-2 border-card ring-1 ring-border/50">
-                      <AvatarFallback>UN</AvatarFallback>
+                      <AvatarFallback>{p.name.substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                   </div>
-                  <Badge variant="secondary" className="px-2.5 py-0.5 font-medium bg-muted/40 text-muted-foreground hover:bg-muted/80 transition-colors">
-                    0 open
-                  </Badge>
                 </div>
               </div>
             </div>
@@ -300,15 +297,15 @@ function Projects() {
                   <td className="p-3 w-48">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary" style={{ width: `0%` }} />
+                        <div className="h-full bg-primary" style={{ width: `${p.progress || 0}%` }} />
                       </div>
-                      <span className="text-xs tabular-nums w-9">0%</span>
+                      <span className="text-xs tabular-nums w-9">{p.progress || 0}%</span>
                     </div>
                   </td>
                   <td className="p-3">
                     <div className="flex -space-x-2">
                       <Avatar className="size-6 border-2 border-card">
-                        <AvatarFallback>UN</AvatarFallback>
+                        <AvatarFallback>{p.name.substring(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
                     </div>
                   </td>
