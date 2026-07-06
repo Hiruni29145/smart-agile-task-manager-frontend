@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { members, tasks } from "@/lib/mock";
-import { Plus, Mail, Search, MoreHorizontal, Edit, Trash2, LayoutGrid, List } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Mail, Search, MoreHorizontal, Edit, Trash2, LayoutGrid, List, Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   Select,
@@ -30,29 +30,77 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiClient } from "@/api/client";
 
 export const Route = createFileRoute("/app/teams")({ component: Teams });
 
 function Teams() {
-  const [teamMembers, setTeamMembers] = useState(members);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [isFetchingMembers, setIsFetchingMembers] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [stats, setStats] = useState({
+    totalDeveloper: 0,
+    activeNow: 0,
+    overloaded: 0,
+    avgWorkload: 0,
+  });
+
+  useEffect(() => {
+    const fetchMembers = async () => {
+      setIsFetchingMembers(true);
+      try {
+        const response = await apiClient<any>("/api/v1/teams/members", { method: "GET" });
+        if (response.success && response.data?.items) {
+          const membersData = response.data.items.map((item: any) => ({
+            id: item.id,
+            name: `${item.firstName} ${item.lastName}`,
+            role: item.jobDescription || "Member",
+            avatar: item.avatar || `https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(item.firstName + " " + item.lastName)}&backgroundColor=c0e2ff,b6e3f4,d1d4f9,ffd5dc`,
+            workload: item.workloadPercentage || 0,
+            status: item.isOnline ? "Active" : "Away",
+            tasks: item.openTasks || 0,
+            capacityStatus: item.capacityStatus
+          }));
+          setTeamMembers(membersData);
+        }
+      } catch (error) {
+        toast.error("Failed to load team members");
+      } finally {
+        setIsFetchingMembers(false);
+      }
+    };
+
+    const fetchStats = async () => {
+      try {
+        const response = await apiClient<any>("/api/v1/teams/stats", { method: "GET" });
+        if (response.success && response.data) {
+          setStats(response.data);
+        }
+      } catch (error) {
+        toast.error("Failed to load team stats");
+      }
+    };
+
+    fetchMembers();
+    fetchStats();
+  }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   
   const [newName, setNewName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [newRole, setNewRole] = useState("Developer");
+  const [newPhone, setNewPhone] = useState("");
+  const [newRole, setNewRole] = useState("DEVELOPER");
   const [newJobTitle, setNewJobTitle] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const filteredMembers = teamMembers.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()) || m.role.toLowerCase().includes(q.toLowerCase()));
   
   const selectedMember = teamMembers.find(m => m.id === selectedMemberId);
-  const memberTasks = tasks.filter(t => t.assignee === selectedMemberId);
-
-  const overloaded = teamMembers.filter((m) => m.workload >= 90).length;
-  const active = teamMembers.filter((m) => m.status === "Active").length;
 
   const handleRemoveUser = (id: string) => {
     setTeamMembers(prev => prev.filter(m => m.id !== id));
@@ -65,30 +113,56 @@ function Teams() {
     toast.success("User updated successfully.");
   };
 
-  const handleCreateUser = () => {
-    if (!newName || !newEmail) {
-      toast.error("Please enter a name and email.");
+  const handleCreateUser = async () => {
+    if (!firstName || !lastName || !newEmail || !newPhone) {
+      toast.error("Please fill in all required fields (First Name, Last Name, Email, Phone).");
       return;
     }
-    
-    const newUser = {
-      id: `u${Date.now()}`,
-      name: newName,
-      role: newJobTitle || newRole,
-      avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(newName)}&backgroundColor=c0e2ff,b6e3f4,d1d4f9,ffd5dc`,
-      workload: 0,
-      status: "Active" as const,
-      tasks: 0,
-    };
-    
-    setTeamMembers([...teamMembers, newUser]);
-    setIsDialogOpen(false);
-    toast.success("User created successfully!");
-    
-    setNewName("");
-    setNewEmail("");
-    setNewRole("Developer");
-    setNewJobTitle("");
+
+    setIsLoading(true);
+    try {
+      const response = await apiClient<any>("/api/v1/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          jobDescription: newJobTitle || newRole,
+          phone: newPhone,
+          role: newRole,
+          email: newEmail,
+          password: "Nirmal@123"
+        })
+      });
+
+      if (response.success || response.statusCode === 201) {
+        const newUser = {
+          id: `u${Date.now()}`,
+          name: `${firstName} ${lastName}`,
+          role: newJobTitle || newRole,
+          avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(firstName + " " + lastName)}&backgroundColor=c0e2ff,b6e3f4,d1d4f9,ffd5dc`,
+          workload: 0,
+          status: "Active" as const,
+          tasks: 0,
+        };
+        
+        setTeamMembers([...teamMembers, newUser]);
+        setIsDialogOpen(false);
+        toast.success("User created successfully!");
+        
+        setFirstName("");
+        setLastName("");
+        setNewEmail("");
+        setNewPhone("");
+        setNewRole("DEVELOPER");
+        setNewJobTitle("");
+      } else {
+        toast.error(response.message || "Failed to create user.");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "An error occurred");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -96,7 +170,7 @@ function Teams() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Teams</h1>
-          <p className="text-sm text-muted-foreground">{teamMembers.length} members · 3 squads</p>
+          <p className="text-sm text-muted-foreground">{stats.totalDeveloper} members · 3 squads</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild><Button className="gap-1.5"><Plus className="size-4" /> Add member</Button></DialogTrigger>
@@ -106,13 +180,25 @@ function Teams() {
               <p className="text-sm text-muted-foreground mt-1">Instantly provision an account for a new user.</p>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              <div className="space-y-1.5">
-                <Label>Full Name</Label>
-                <Input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Jane Doe" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>First Name</Label>
+                  <Input value={firstName} onChange={e=>setFirstName(e.target.value)} placeholder="e.g. John" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Last Name</Label>
+                  <Input value={lastName} onChange={e=>setLastName(e.target.value)} placeholder="e.g. Doe" />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={newEmail} onChange={e=>setNewEmail(e.target.value)} type="email" placeholder="jane@company.com" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Email</Label>
+                  <Input value={newEmail} onChange={e=>setNewEmail(e.target.value)} type="email" placeholder="jane@company.com" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Phone</Label>
+                  <Input value={newPhone} onChange={e=>setNewPhone(e.target.value)} placeholder="+94771434562" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -120,8 +206,8 @@ function Teams() {
                   <Select value={newRole} onValueChange={setNewRole}>
                     <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Admin">Admin</SelectItem>
-                      <SelectItem value="Developer">Developer</SelectItem>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="DEVELOPER">Developer</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -133,25 +219,30 @@ function Teams() {
               <div className="space-y-1.5 pt-2">
                 <Label>Temporary Password</Label>
                 <div className="flex gap-2">
-                  <Input readOnly value="Welcome123!" className="bg-muted text-muted-foreground font-mono" />
-                  <Button variant="outline" onClick={() => toast.info("Password copied to clipboard!")}>Copy</Button>
+                  <Input readOnly value="Nirmal@123" className="bg-muted text-muted-foreground font-mono" />
+                  <Button variant="outline" onClick={() => {
+                    navigator.clipboard.writeText("Nirmal@123");
+                    toast.info("Password copied to clipboard!");
+                  }}>Copy</Button>
                 </div>
                 <p className="text-xs text-muted-foreground">Share this password securely. They will be prompted to change it upon first login.</p>
               </div>
             </div>
             <DialogFooter className="gap-2 sm:gap-0 mt-2">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateUser}>Create User</Button>
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isLoading}>Cancel</Button>
+              <Button onClick={handleCreateUser} disabled={isLoading}>
+                {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</> : "Create User"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Members" value={teamMembers.length} icon={Users} />
-        <StatCard label="Active Now" value={active} icon={UserCheck} accent="success" />
-        <StatCard label="Overloaded" value={overloaded} icon={AlertTriangle} accent="warning" />
-        <StatCard label="Avg Workload" value={teamMembers.length ? Math.round(teamMembers.reduce((a, m) => a + m.workload, 0) / teamMembers.length) : 0} suffix="%" icon={Users} accent="info" />
+        <StatCard label="Total Members" value={stats.totalDeveloper} icon={Users} />
+        <StatCard label="Active Now" value={stats.activeNow} icon={UserCheck} accent="success" />
+        <StatCard label="Overloaded" value={stats.overloaded} icon={AlertTriangle} accent="warning" />
+        <StatCard label="Avg Workload" value={stats.avgWorkload} suffix="%" icon={Users} accent="info" />
       </div>
 
       <div className="flex items-center justify-between gap-4">
@@ -179,7 +270,47 @@ function Teams() {
         </div>
       </div>
 
-      {viewMode === "grid" ? (
+      {isFetchingMembers ? (
+        viewMode === "grid" ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl border bg-card flex flex-col relative overflow-hidden">
+                <Skeleton className="h-20 w-full rounded-none" />
+                <div className="px-5 pb-5 flex-1 flex flex-col items-center text-center -mt-10 relative z-10">
+                  <Skeleton className="size-20 rounded-full border-4 border-card shadow-sm ring-1 ring-border/50 mb-4" />
+                  <Skeleton className="h-5 w-3/4 mb-2" />
+                  <Skeleton className="h-4 w-1/2 mb-4" />
+                  <Skeleton className="h-6 w-16 rounded-full mb-6" />
+                  <div className="grid grid-cols-2 gap-3 w-full mb-5">
+                    <Skeleton className="h-[72px] rounded-xl" />
+                    <Skeleton className="h-[72px] rounded-xl" />
+                  </div>
+                  <Skeleton className="h-4 w-full mb-2" />
+                  <Skeleton className="h-1.5 w-full rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <div className="p-4 space-y-4">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="size-8 rounded-full" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                  <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="size-8 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      ) : viewMode === "grid" ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredMembers.map((m) => (
             <div key={m.id} onClick={() => setSelectedMemberId(m.id)} className="cursor-pointer group rounded-2xl border bg-card hover:shadow-xl hover:border-primary/30 transition-all duration-300 overflow-hidden flex flex-col relative">
@@ -235,11 +366,11 @@ function Teams() {
                 <div className="mt-5 w-full">
                   <div className="flex justify-between text-xs mb-1.5 font-medium">
                     <span className="text-muted-foreground">Capacity</span>
-                    <span className={m.workload >= 90 ? "text-destructive" : ""}>{m.workload >= 90 ? "Overloaded" : "Healthy"}</span>
+                    <span className={`font-semibold ${m.capacityStatus === 'Overloaded' ? 'text-destructive' : m.capacityStatus === 'Healthy' ? 'text-emerald-500' : 'text-foreground'}`}>{m.capacityStatus || "Unknown"}</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                     <div
-                      className={`h-full transition-all duration-1000 ease-out ${m.workload >= 90 ? "bg-destructive" : m.workload >= 75 ? "bg-warning" : "bg-primary"}`}
+                      className="h-full transition-all duration-1000 ease-out bg-primary"
                       style={{ width: `${m.workload}%` }}
                     />
                   </div>
@@ -285,7 +416,7 @@ function Teams() {
                     <div className="flex items-center justify-center gap-3">
                       <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
                         <div
-                          className={`h-full transition-all duration-1000 ease-out ${m.workload >= 90 ? "bg-destructive" : m.workload >= 75 ? "bg-warning" : "bg-primary"}`}
+                          className="h-full transition-all duration-1000 ease-out bg-primary"
                           style={{ width: `${m.workload}%` }}
                         />
                       </div>
@@ -365,36 +496,13 @@ function Teams() {
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-xl bg-muted/40 border p-3">
                       <div className="text-xs text-muted-foreground mb-1">Assigned Tasks</div>
-                      <div className="text-xl font-bold text-primary">{memberTasks.length}</div>
+                      <div className="text-xl font-bold text-primary">{selectedMember.tasks}</div>
                     </div>
                     <div className="rounded-xl bg-muted/40 border p-3">
                       <div className="text-xs text-muted-foreground mb-1">Current Workload</div>
-                      <div className={`text-xl font-bold ${selectedMember.workload >= 90 ? "text-destructive" : ""}`}>{selectedMember.workload}%</div>
+                      <div className="text-xl font-bold">{selectedMember.workload}%</div>
                     </div>
                   </div>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-semibold mb-3">Active Tasks</h4>
-                  {memberTasks.length > 0 ? (
-                    <div className="space-y-3">
-                      {memberTasks.map((t) => (
-                        <div key={t.id} className="p-3.5 rounded-xl border bg-card hover:bg-muted/30 transition-colors">
-                          <div className="font-medium text-sm leading-tight">{t.title}</div>
-                          <div className="flex justify-between items-center mt-3">
-                            <Badge variant="outline" className={`text-[10px] uppercase font-bold ${t.status === "done" ? "text-success border-success/30 bg-success/10" : "text-muted-foreground"}`}>
-                              {t.status.replace("_", " ")}
-                            </Badge>
-                            <span className="text-xs font-medium text-muted-foreground">{t.storyPoints} Story Points</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-6 border rounded-xl border-dashed text-center text-sm text-muted-foreground bg-muted/20">
-                      No active tasks assigned.
-                    </div>
-                  )}
                 </div>
               </div>
             </>

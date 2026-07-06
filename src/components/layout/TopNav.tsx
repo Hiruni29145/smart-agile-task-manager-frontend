@@ -1,4 +1,5 @@
 import { Bell, Sun, Moon, Plus } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useTheme } from "@/lib/theme";
 import { useRole } from "@/lib/role";
 import { Link, useRouterState } from "@tanstack/react-router";
@@ -9,6 +10,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { apiClient } from "@/api/client";
 
 const labelMap: Record<string, string> = {
   app: "Manager", dev: "Developer",
@@ -24,7 +26,33 @@ export function TopNav({ onNewTask }: { onNewTask?: () => void }) {
   const { role, setRole } = useRole();
   const path = useRouterState({ select: (s) => s.location.pathname });
 
+  const [profile, setProfile] = useState<{ firstName?: string; lastName?: string; avatar?: string } | null>(null);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await apiClient<any>("/api/v1/auth/me");
+        if (response.success && response.data) {
+          setProfile(response.data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch profile in nav:", error);
+      }
+    };
+    fetchProfile();
+  }, []);
+
   const segments = path.split("/").filter(Boolean);
+
+  const displayName = profile?.firstName && profile?.lastName 
+    ? `${profile.firstName} ${profile.lastName}` 
+    : (role === "manager" ? "Alex Morgan" : "Aria Chen");
+
+  const fallbackInitials = profile?.firstName && profile?.lastName 
+    ? `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase() 
+    : "ME";
+    
+  const avatarUrl = profile?.avatar || "https://api.dicebear.com/7.x/notionists/svg?seed=Me";
 
   return (
     <header className="sticky top-0 z-30 h-16 border-b bg-background/80 backdrop-blur-md flex items-center px-4 md:px-6 gap-3">
@@ -89,23 +117,16 @@ export function TopNav({ onNewTask }: { onNewTask?: () => void }) {
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 rounded-full pl-1 pr-3 h-9 hover:bg-muted transition">
               <Avatar className="size-7 border">
-                <AvatarImage src="https://api.dicebear.com/7.x/notionists/svg?seed=Me" />
-                <AvatarFallback>ME</AvatarFallback>
+                <AvatarImage src={avatarUrl} />
+                <AvatarFallback>{fallbackInitials}</AvatarFallback>
               </Avatar>
               <span className="text-sm font-medium hidden sm:inline">
-                {role === "manager" ? "Alex Morgan" : "Aria Chen"}
+                {displayName}
               </span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 rounded-xl">
-            <DropdownMenuLabel>Switch role (demo)</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => setRole("manager")} asChild>
-              <Link to="/app/dashboard">Project Manager</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setRole("developer")} asChild>
-              <Link to="/dev/dashboard">Developer</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+
             <DropdownMenuItem asChild>
               <Link to={role === "manager" ? "/app/settings" : "/dev/profile"}>Settings</Link>
             </DropdownMenuItem>

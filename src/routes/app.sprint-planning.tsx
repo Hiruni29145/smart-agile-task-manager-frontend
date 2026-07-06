@@ -1,124 +1,272 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { tasks as initialTasks, memberById, projects } from "@/lib/mock";
-import { useMemo, useState } from "react";
-import { PriorityBadge } from "@/components/ui-bits";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Calendar, Target, Plus, Download, FileSpreadsheet, FileText, ChevronLeft, ChevronRight, Loader2, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Calendar, Target, Plus, ArrowRightLeft, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { apiClient } from "@/api/client";
+import { PriorityBadge } from "@/components/ui-bits";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/app/sprint-planning")({ component: SprintPlanning });
 
-// AI Date Math Helper: Adds working days to a date (skipping weekends)
-function addWorkingDays(startDate: Date, days: number) {
-  let date = new Date(startDate);
-  let added = 0;
-  while (added < days) {
-    date.setDate(date.getDate() + 1);
-    if (date.getDay() !== 0 && date.getDay() !== 6) {
-      added++;
-    }
-  }
-  return date;
-}
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-type SprintBlock = {
-  id: string;
+type Project = {
+  id: number;
   name: string;
-  goal: string;
-  status: "planned" | "active" | "completed";
+};
+
+type Sprint = {
+  id: number;
+  name: string;
+  sprintNo: number;
+  status: string;
+  startDate: string;
+  endDate: string;
+  projectId: number;
+  createdAt: string;
+  updatedAt: string;
+  estimatedWorkload: number;
+  storyPoints: number;
+};
+
+type Task = {
+  id: number;
+  title: string;
+  description: string;
+  type: string;
+  priority: string;
+  status: string;
+  storyPoints: number;
+  estimatedTime: number;
+  realTime: number;
+  complexity: number;
+  confidence: number;
+  deadline: string;
+  projectId: number;
+  sprintId: number;
+  assigneeId: string;
+  assignee: {
+      id: string;
+      name: string;
+  } | null;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PaginatedResponse<T> = {
+  items: T[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+};
+
+function getWorkingDays(startDateStr: string, endDateStr: string) {
+  if (!startDateStr || !endDateStr) return 0;
+  let date = new Date(startDateStr);
+  const endDate = new Date(endDateStr);
+  let days = 0;
+  while (date <= endDate) {
+    if (date.getDay() !== 0 && date.getDay() !== 6) {
+      days++;
+    }
+    date.setDate(date.getDate() + 1);
+  }
+  return days;
+}
+
+function formatDate(dateStr: string) {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function TaskRow({ task }: { task: Task }) {
+  const m = task.assignee;
+  return (
+    <div className="group rounded-xl border bg-background p-3 hover:shadow-md hover:border-primary/40 transition-all flex items-center gap-4">
+      <div className="flex-1 min-w-0 flex items-center gap-4">
+        <div className="w-24 shrink-0">
+          <PriorityBadge p={task.priority} />
+        </div>
+        <div className="flex-1 truncate text-sm font-medium">
+          <span className="text-[10px] font-mono text-muted-foreground mr-2">#{task.id}</span>
+          {task.title}
+        </div>
+        <div className="flex items-center gap-4 shrink-0">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary bg-primary/5 px-2.5 py-1 rounded-md min-w-[4rem] justify-center">
+            <Sparkles className="size-3" />{task.estimatedTime ?? 0}h
+          </span>
+          {m ? (
+            <Avatar className="size-7 border bg-primary/10">
+              <AvatarFallback className="text-xs font-medium text-primary">{m.name[0]}</AvatarFallback>
+            </Avatar>
+          ) : (
+            <Avatar className="size-7 border bg-muted">
+              <AvatarFallback className="text-xs font-medium text-muted-foreground">?</AvatarFallback>
+            </Avatar>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SprintTasks({ sprintId }: { sprintId: number }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['sprint-tasks', sprintId],
+    queryFn: () => apiClient<PaginatedResponse<Task>>(`/api/v1/sprints/${sprintId}/tasks`)
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-4 bg-muted/10 space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="rounded-xl border bg-background p-3 flex items-center gap-4">
+            <div className="flex-1 min-w-0 flex items-center gap-4">
+              <div className="w-24 shrink-0"><Skeleton className="h-5 w-16" /></div>
+              <div className="flex-1 flex items-center gap-2"><Skeleton className="h-3 w-10" /><Skeleton className="h-4 w-1/3" /></div>
+              <div className="flex items-center gap-4 shrink-0">
+                <Skeleton className="h-6 w-16 rounded-md" />
+                <Skeleton className="size-7 rounded-full" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-8 text-center text-destructive text-sm bg-muted/10">
+        Failed to load tasks for this sprint.
+      </div>
+    );
+  }
+
+  const tasks = data?.data?.items || [];
+
+  if (tasks.length === 0) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center text-muted-foreground bg-muted/10 min-h-[120px]">
+        <div className="size-10 rounded-full bg-muted/50 grid place-items-center mb-3"><Target className="size-5 text-muted-foreground/40" /></div>
+        <p className="font-medium text-sm">Sprint is empty</p>
+        <p className="text-xs mt-1">No tasks have been added to this sprint yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 bg-muted/10 space-y-3">
+      {tasks.map(t => (
+        <TaskRow key={t.id} task={t} />
+      ))}
+    </div>
+  );
 }
 
 function SprintPlanning() {
-  const [selectedProject, setSelectedProject] = useState(projects[0].id);
-  const [tasks, setTasks] = useState(initialTasks.map(t => ({...t, sprint: "Backlog"}))); // Default all to backlog for demo
-  const [sprints, setSprints] = useState<SprintBlock[]>([
-    { id: "s1", name: "Sprint 1", goal: "Foundation & Setup", status: "planned" }
-  ]);
-
-  // 1. Filter tasks for the selected project
-  const projectTasks = useMemo(() => tasks.filter(t => (t as any).projectId === selectedProject || !(t as any).projectId), [tasks, selectedProject]);
+  const [selectedProject, setSelectedProject] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [expandedSprints, setExpandedSprints] = useState<Record<number, boolean>>({});
   
-  // 2. Backlog Tasks
-  const backlogTasks = projectTasks.filter(t => !t.sprint || t.sprint === "Backlog");
+  // Create Sprint Modal State
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newSprintData, setNewSprintData] = useState({ projectId: '', name: '', sprintNo: '', startDate: '', endDate: '' });
 
-  // 3. AI Waterfall Timeline Calculation
-  const TEAM_CAPACITY_HOURS_PER_DAY = 3 * 8; // 3 devs, 8 hours a day = 24h capacity per day
+  const limit = 10;
+  const queryClient = useQueryClient();
+
+  // Fetch Projects dynamically
+  const { data: projectsData, isLoading: isProjectsLoading } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiClient<PaginatedResponse<Project>>(`/api/v1/projects?page=1&limit=50`)
+  });
   
-  const sprintData = useMemo(() => {
-    let currentStartDate = new Date(); // The waterfall starts today
-    
-    return sprints.map(s => {
-      const sTasks = projectTasks.filter(t => t.sprint === s.id);
-      const totalHours = sTasks.reduce((acc, t) => acc + t.aiHours, 0);
-      const totalSP = sTasks.reduce((acc, t) => acc + t.storyPoints, 0);
-      
-      // Calculate how many working days this Sprint requires based on tasks
-      // Minimum 1 day even if empty, so the dates calculate nicely
-      const requiredDays = Math.max(1, Math.ceil(totalHours / TEAM_CAPACITY_HOURS_PER_DAY));
-      
-      const startDate = new Date(currentStartDate);
-      const endDate = addWorkingDays(startDate, requiredDays - 1); // -1 because start day is inclusive
-      
-      // The NEXT sprint starts the working day AFTER this one ends
-      currentStartDate = addWorkingDays(endDate, 1);
-      
-      return {
-        ...s,
-        tasks: sTasks,
-        totalHours,
-        totalSP,
-        requiredDays,
-        startDate,
-        endDate
-      };
-    });
-  }, [sprints, projectTasks]);
+  const projects = projectsData?.data?.items || [];
 
-  const handleCreateSprint = () => {
-    const newId = `s${sprints.length + 1}`;
-    setSprints([...sprints, { id: newId, name: `Sprint ${sprints.length + 1}`, goal: "", status: "planned" }]);
-    toast.success(`Sprint ${sprints.length + 1} added!`);
-  };
-
-  const toggleSprintStatus = (sprintId: string) => {
-    const sprint = sprints.find(s => s.id === sprintId);
-    if (!sprint) return;
-
-    if (sprint.status === "planned") {
-      // Check if another sprint is active
-      const hasActive = sprints.some(s => s.status === "active");
-      if (hasActive) {
-        toast.error("Finish the current active sprint before starting a new one.");
-        return;
-      }
-      setSprints(sprints.map(s => s.id === sprintId ? { ...s, status: "active" } : s));
-      toast.success(`${sprint.name} started! It is now visible on the Kanban board.`);
-    } else if (sprint.status === "active") {
-      setSprints(sprints.map(s => s.id === sprintId ? { ...s, status: "completed" } : s));
-      toast.success(`${sprint.name} completed!`);
+  // Auto-select the first project when loaded
+  useEffect(() => {
+    if (!selectedProject && projects.length > 0) {
+      setSelectedProject(projects[0].id);
     }
-  };
+  }, [projects, selectedProject]);
 
-  const moveTask = (taskId: string, destSprintId: string | "Backlog") => {
-    const destSprint = sprints.find(s => s.id === destSprintId);
-    if (destSprint?.status === "completed") {
-      toast.error("Cannot move tasks into a completed sprint.");
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['sprints', page, limit],
+    queryFn: () => apiClient<PaginatedResponse<Sprint>>(`/api/v1/sprints?page=${page}&limit=${limit}`)
+  });
+
+  const updateSprintStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: number, status: string }) => {
+      return apiClient(`/api/v1/sprints/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status })
+      });
+    },
+    onSuccess: () => {
+      toast.success("Sprint status updated successfully!");
+      queryClient.invalidateQueries({ queryKey: ['sprints'] });
+    },
+    onError: () => {
+      toast.error("Failed to update sprint status.");
+    }
+  });
+
+  const createSprintMutation = useMutation({
+    mutationFn: async (newSprint: any) => {
+      return apiClient('/api/v1/sprints', {
+        method: 'POST',
+        body: JSON.stringify(newSprint)
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Sprint created successfully!");
+      setIsCreateOpen(false);
+      setNewSprintData({ projectId: '', name: '', sprintNo: '', startDate: '', endDate: '' });
+      setPage(1); // Reset to first page to see the newly created sprint
+      await queryClient.invalidateQueries({ queryKey: ['sprints'] });
+    },
+    onError: () => {
+      toast.error("Failed to create sprint.");
+    }
+  });
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSprintData.projectId) {
+      toast.error("Please select a project.");
       return;
     }
+    createSprintMutation.mutate({
+      projectId: Number(newSprintData.projectId),
+      name: newSprintData.name,
+      sprintNo: Number(newSprintData.sprintNo),
+      startDate: newSprintData.startDate,
+      endDate: newSprintData.endDate,
+      status: "PLANNED" // Hardcoded status as requested
+    });
+  };
 
-    setTasks(tasks.map(t => t.id === taskId ? { ...t, sprint: destSprintId as any, projectId: selectedProject } : t));
-    if (destSprintId !== "Backlog") {
-      toast.success("Task moved to Sprint! AI recalculated the timeline.");
-    } else {
-      toast("Task returned to Backlog. Timelines adjusted.");
-    }
+  const allSprints = data?.data?.items || [];
+  const sprints = selectedProject 
+    ? allSprints.filter(s => s.projectId === selectedProject) 
+    : allSprints;
+  const meta = data?.data?.meta;
+
+  const toggleSprint = (id: number) => {
+    setExpandedSprints(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   return (
@@ -127,166 +275,265 @@ function SprintPlanning() {
       <div className="flex items-center justify-between border-b pb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Project Sprints</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Drag tasks to build your sprints. AI auto-generates the delivery timelines.</p>
+          <p className="text-muted-foreground mt-1 text-sm">Manage your project sprints and delivery timelines.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Select value={selectedProject} onValueChange={setSelectedProject}>
+          <Select 
+            value={selectedProject ? selectedProject.toString() : ""} 
+            onValueChange={(val) => {
+              setSelectedProject(Number(val));
+              setPage(1);
+            }}
+            disabled={isProjectsLoading}
+          >
             <SelectTrigger className="w-[240px] bg-card border-dashed">
-              <SelectValue placeholder="Select Project" />
+              <SelectValue placeholder={isProjectsLoading ? "Loading projects..." : "Select Project"} />
             </SelectTrigger>
             <SelectContent>
-              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+              {projects.map((p) => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2 bg-card">
-                <Download className="size-4" /> Export Plan
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[160px]">
-              <DropdownMenuItem onClick={() => toast.success("Project exported as CSV!")}>
-                <FileSpreadsheet className="mr-2 size-4 text-emerald-600" /> Export CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.success("Project exported as PDF!")}>
-                <FileText className="mr-2 size-4 text-rose-600" /> Export PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button onClick={() => setIsCreateOpen(true)} className="gap-2 shadow-sm">
+            <Plus className="size-4" /> Create Sprint
+          </Button>
         </div>
       </div>
 
       {/* Sprints Stack */}
       <div className="space-y-8">
-        {sprintData.map((s, idx) => (
-          <div key={s.id} className={`rounded-3xl border bg-card shadow-sm overflow-hidden transition-all ${s.status === 'active' ? 'ring-2 ring-primary shadow-md' : 'ring-1 ring-primary/10'} ${s.status === 'completed' ? 'opacity-70 grayscale-[30%]' : ''}`}>
-            {/* Sprint Header */}
-            <div className={`p-6 border-b ${s.status === 'active' ? 'bg-primary/5' : 'bg-gradient-to-r from-primary/[0.04] via-transparent to-transparent'}`}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-bold text-xl flex items-center gap-2">
-                      <Target className="size-5 text-primary" /> {s.name}
-                    </h3>
-                    {s.status === "active" && <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-xs font-bold uppercase tracking-wider">Active</span>}
-                    {s.status === "completed" && <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-bold uppercase tracking-wider">Completed</span>}
-                    {s.status === "planned" && <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 text-xs font-bold uppercase tracking-wider">Planned</span>}
+        {isLoading && (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-3xl border bg-card shadow-sm overflow-hidden ring-1 ring-primary/10">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="size-5 rounded-full" />
+                      <Skeleton className="h-7 w-48" />
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-3 ml-7">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-6 w-32 rounded-md" />
+                    </div>
                   </div>
-                  <div className="text-sm text-muted-foreground mt-1.5 flex items-center gap-3 font-medium">
-                    <span className="flex items-center gap-1.5"><Calendar className="size-4" /> {formatDate(s.startDate)} - {formatDate(s.endDate)}</span>
-                    <span className="text-muted-foreground/50">•</span>
-                    <span className="text-primary bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-1"><Sparkles className="size-3.5" /> AI Calc: {s.requiredDays} Working Days</span>
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center justify-end gap-4">
+                      <div className="flex flex-col items-end gap-1">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-4 w-8" />
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-4 w-8" />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-9 w-24 rounded-md" />
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center justify-end gap-4 text-sm font-semibold tabular-nums">
-                    <div className="flex flex-col items-end"><span className="text-muted-foreground text-xs font-medium">Est. Workload</span>{s.totalHours.toFixed(1)}h</div>
-                    <div className="flex flex-col items-end"><span className="text-muted-foreground text-xs font-medium">Story Points</span>{s.totalSP} SP</div>
-                  </div>
-                  {s.status === "planned" && (
-                    <Button onClick={() => toggleSprintStatus(s.id)}>Start Sprint</Button>
-                  )}
-                  {s.status === "active" && (
-                    <Button variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => toggleSprintStatus(s.id)}>Complete Sprint</Button>
-                  )}
                 </div>
               </div>
             </div>
+          ))
+        )}
+        
+        {isError && (
+          <div className="text-center py-12 text-destructive">
+            Failed to load sprints.
+          </div>
+        )}
 
-            {/* Sprint Task List */}
-            <div className="p-4 bg-muted/10 space-y-3 min-h-[120px]">
-              {s.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} sprints={sprints} onMove={moveTask} currentContainer={s.id} />
-              ))}
-              {s.tasks.length === 0 && (
-                <div className="h-[120px] rounded-xl flex flex-col items-center justify-center text-sm text-muted-foreground border-2 border-dashed border-muted bg-background/50">
-                  <div className="size-10 rounded-full bg-muted/50 grid place-items-center mb-3"><Target className="size-5 text-muted-foreground/40" /></div>
-                  <p className="font-medium text-foreground/70">Sprint is empty</p>
-                  <p className="text-xs mt-1">Move tasks from the backlog below.</p>
+        {!isLoading && !isError && sprints.length === 0 && (
+          <div className="text-center py-16 text-muted-foreground border-2 border-dashed rounded-3xl bg-card">
+            <Target className="size-10 mx-auto mb-4 text-muted-foreground/40" />
+            <p className="font-medium text-lg">No sprints found</p>
+            <p className="text-sm mt-1">Create a new sprint to get started.</p>
+          </div>
+        )}
+
+        {sprints.map((s) => {
+          const statusLower = s.status.toLowerCase();
+          const isActive = statusLower === 'active';
+          const isCompleted = statusLower === 'completed';
+          const isPlanned = statusLower === 'planned';
+          const isExpanded = expandedSprints[s.id];
+
+          return (
+            <div key={s.id} className={`rounded-3xl border bg-card shadow-sm overflow-hidden transition-all ${isActive ? 'ring-2 ring-primary shadow-md' : 'ring-1 ring-primary/10'} ${isCompleted ? 'opacity-70 grayscale-[30%]' : ''}`}>
+              {/* Sprint Header */}
+              <div 
+                className={`p-6 cursor-pointer hover:bg-muted/30 transition-colors ${isActive ? 'bg-primary/5' : 'bg-gradient-to-r from-primary/[0.04] via-transparent to-transparent'}`}
+                onClick={() => toggleSprint(s.id)}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-bold text-xl flex items-center gap-2">
+                        <Target className="size-5 text-primary" /> {s.name}
+                      </h3>
+                      {isActive && <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-xs font-bold uppercase tracking-wider">Active</span>}
+                      {isCompleted && <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-bold uppercase tracking-wider">Completed</span>}
+                      {isPlanned && <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 text-xs font-bold uppercase tracking-wider">Planned</span>}
+                      {!isActive && !isCompleted && !isPlanned && (
+                         <span className="px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-600 text-xs font-bold uppercase tracking-wider">{s.status}</span>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground mt-1.5 flex items-center gap-3 font-medium ml-7">
+                      <span className="flex items-center gap-1.5"><Calendar className="size-4" /> {formatDate(s.startDate)} - {formatDate(s.endDate)}</span>
+                      <span className="text-muted-foreground/50">•</span>
+                      <span className="text-primary bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-1">Duration: {getWorkingDays(s.startDate, s.endDate)} Working Days</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center justify-end gap-4 text-sm font-semibold tabular-nums">
+                      <div className="flex flex-col items-end"><span className="text-muted-foreground text-xs font-medium">Est. Workload</span>{s.estimatedWorkload ?? 0}h</div>
+                      <div className="flex flex-col items-end"><span className="text-muted-foreground text-xs font-medium">Story Points</span>{s.storyPoints ?? 0} SP</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isPlanned && (
+                        <Button 
+                          size="sm" 
+                          onClick={(e) => { e.stopPropagation(); updateSprintStatus.mutate({ id: s.id, status: 'ACTIVE' }); }}
+                          disabled={updateSprintStatus.isPending}
+                        >
+                          Start Sprint
+                        </Button>
+                      )}
+                      {isActive && (
+                        <Button 
+                          size="sm" 
+                          variant="default" 
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white" 
+                          onClick={(e) => { e.stopPropagation(); updateSprintStatus.mutate({ id: s.id, status: 'COMPLETED' }); }}
+                          disabled={updateSprintStatus.isPending}
+                        >
+                          Complete Sprint
+                        </Button>
+                      )}
+                      <Button variant={isExpanded ? "default" : "secondary"} size="sm" className="gap-2 pointer-events-none">
+                        {isExpanded ? 'Hide Tasks' : 'View Tasks'}
+                        {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sprint Tasks Area (Expandable) */}
+              {isExpanded && (
+                <div className="border-t border-dashed">
+                  <SprintTasks sprintId={s.id} />
                 </div>
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
 
-        <div className="pt-2">
-          <Button variant="outline" className="w-full h-14 rounded-2xl border-dashed border-2 bg-card/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all group" onClick={handleCreateSprint}>
-            <Plus className="size-5 mr-2 group-hover:scale-125 transition-transform text-primary/70" /> 
-            <span className="font-medium text-base">Create Next Sprint</span>
-          </Button>
-        </div>
+        {/* Pagination Controls */}
+        {meta && meta.totalPages > 1 && (
+          <div className="flex items-center justify-center gap-4 pt-4">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={!meta.hasPreviousPage}
+              className="gap-1"
+            >
+              <ChevronLeft className="size-4" /> Previous
+            </Button>
+            <span className="text-sm font-medium text-muted-foreground">
+              Page {meta.page} of {meta.totalPages}
+            </span>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
+              disabled={!meta.hasNextPage}
+              className="gap-1"
+            >
+              Next <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        )}
+
+
       </div>
 
-      {/* Backlog Section */}
-      <div className="mt-20 rounded-3xl border bg-card shadow-md overflow-hidden relative">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-300 via-slate-400 to-slate-300 opacity-50"></div>
-        <div className="p-6 border-b bg-muted/20 flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-xl text-foreground/80 flex items-center gap-2">
-              Product Backlog
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1">Unassigned tasks for this project ({backlogTasks.length})</p>
-          </div>
-        </div>
-        <div className="p-4 bg-muted/10 space-y-3 min-h-[200px]">
-          {backlogTasks.map((t) => (
-            <TaskRow key={t.id} task={t} sprints={sprints} onMove={moveTask} currentContainer="Backlog" />
-          ))}
-          {backlogTasks.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <div className="size-16 rounded-full bg-muted/50 grid place-items-center mx-auto mb-4 border border-dashed"><Sparkles className="size-6 text-muted-foreground/40" /></div>
-              <p className="font-medium text-base">All caught up!</p>
-              <p className="text-sm mt-1">No more tasks left in the backlog for this project.</p>
+      {/* Create Sprint Dialog */}
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Create New Sprint</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateSubmit} className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label htmlFor="createProjectId">Project</Label>
+              <Select 
+                value={newSprintData.projectId} 
+                onValueChange={(val) => setNewSprintData({...newSprintData, projectId: val})}
+              >
+                <SelectTrigger id="createProjectId">
+                  <SelectValue placeholder="Select a project" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Reusable Task Row Component
-function TaskRow({ task, sprints, onMove, currentContainer }: { task: any, sprints: SprintBlock[], onMove: (id: string, dest: string) => void, currentContainer: string }) {
-  const m = memberById(task.assignee)!;
-  return (
-    <div className="group rounded-xl border bg-background p-3 hover:shadow-md hover:border-primary/40 transition-all flex items-center gap-4">
-      <div className="flex-1 min-w-0 flex items-center gap-4">
-        <div className="w-20 shrink-0">
-          <PriorityBadge p={task.priority} />
-        </div>
-        <div className="flex-1 truncate text-sm font-medium">
-          <span className="text-[10px] font-mono text-muted-foreground mr-2">#{task.id}</span>
-          {task.title}
-        </div>
-        <div className="flex items-center gap-4 shrink-0">
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary bg-primary/5 px-2 py-1 rounded-md w-16 justify-center">
-            <Sparkles className="size-3" />{task.aiHours}h
-          </span>
-          <Avatar className="size-7 border"><AvatarImage src={m.avatar} /><AvatarFallback>{m.name[0]}</AvatarFallback></Avatar>
-        </div>
-      </div>
-      
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="secondary" size="sm" className="h-8 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity w-[100px]">
-            <ArrowRightLeft className="size-3 mr-2 text-muted-foreground"/> Move
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-[180px]">
-          {currentContainer !== "Backlog" && (
-            <DropdownMenuItem onClick={() => onMove(task.id, "Backlog")} className="font-medium text-muted-foreground">
-              Send to Backlog
-            </DropdownMenuItem>
-          )}
-          {sprints.map(s => (
-             currentContainer !== s.id && (
-               <DropdownMenuItem key={s.id} onClick={() => onMove(task.id, s.id)} className="font-medium">
-                 Move to {s.name}
-               </DropdownMenuItem>
-             )
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <div className="space-y-2">
+              <Label htmlFor="name">Sprint Name</Label>
+              <Input 
+                id="name" 
+                placeholder="e.g. Sprint 1 - Alpha Release" 
+                value={newSprintData.name}
+                onChange={e => setNewSprintData({...newSprintData, name: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sprintNo">Sprint Number</Label>
+              <Input 
+                id="sprintNo" 
+                type="number" 
+                placeholder="e.g. 1" 
+                value={newSprintData.sprintNo}
+                onChange={e => setNewSprintData({...newSprintData, sprintNo: e.target.value})}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date</Label>
+                <Input 
+                  id="startDate" 
+                  type="date" 
+                  value={newSprintData.startDate}
+                  onChange={e => setNewSprintData({...newSprintData, startDate: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date</Label>
+                <Input 
+                  id="endDate" 
+                  type="date" 
+                  value={newSprintData.endDate}
+                  onChange={e => setNewSprintData({...newSprintData, endDate: e.target.value})}
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={createSprintMutation.isPending}>
+                {createSprintMutation.isPending ? "Creating..." : "Create Sprint"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

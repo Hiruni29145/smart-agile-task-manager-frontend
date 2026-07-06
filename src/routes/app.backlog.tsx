@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/app/backlog")({ component: Backlog });
 
@@ -192,7 +193,18 @@ function Backlog() {
           </thead>
           <tbody>
             {loadingTasks ? (
-              <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Loading tasks...</td></tr>
+              Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="p-4"><Skeleton className="h-5 w-48" /></td>
+                  <td className="p-4"><Skeleton className="h-5 w-16" /></td>
+                  <td className="p-4"><Skeleton className="h-5 w-16" /></td>
+                  <td className="p-4"><Skeleton className="h-6 w-16 rounded-md" /></td>
+                  <td className="p-4"><Skeleton className="h-5 w-8" /></td>
+                  <td className="p-4 flex items-center gap-2.5"><Skeleton className="size-6 rounded-full" /><Skeleton className="h-4 w-24" /></td>
+                  <td className="p-4"><Skeleton className="h-8 w-[130px] rounded-md" /></td>
+                  <td className="p-4 text-right"><Skeleton className="size-8 rounded-md ml-auto" /></td>
+                </tr>
+              ))
             ) : filtered.length === 0 ? (
               <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No tasks found.</td></tr>
             ) : filtered.map((t) => {

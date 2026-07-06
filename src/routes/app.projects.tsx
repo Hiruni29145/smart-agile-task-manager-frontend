@@ -38,6 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/app/projects")({ component: Projects });
 
@@ -212,7 +213,25 @@ function Projects() {
       {view === "grid" ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {isLoading ? (
-            <div className="col-span-full py-10 text-center text-muted-foreground">Loading projects...</div>
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex flex-col rounded-xl border bg-card overflow-hidden">
+                <Skeleton className="h-28 w-full rounded-none" />
+                <div className="p-5 pt-0 flex-1 flex flex-col">
+                  <Skeleton className="size-14 rounded-xl -mt-7 relative z-10" />
+                  <div className="mt-3 space-y-2">
+                    <Skeleton className="h-5 w-2/3" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                  <div className="mt-5 space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-full" />
+                  </div>
+                  <div className="mt-5 pt-4 border-t flex items-center justify-between">
+                    <Skeleton className="size-8 rounded-full" />
+                  </div>
+                </div>
+              </div>
+            ))
           ) : filtered.length === 0 ? (
             <div className="col-span-full py-10 text-center text-muted-foreground">No projects found.</div>
           ) : filtered.map((p) => (
@@ -287,7 +306,15 @@ function Projects() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="p-10 text-center text-muted-foreground">Loading projects...</td></tr>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="p-3"><Skeleton className="h-5 w-32" /></td>
+                    <td className="p-3"><Skeleton className="h-5 w-24" /></td>
+                    <td className="p-3"><Skeleton className="h-5 w-48" /></td>
+                    <td className="p-3"><Skeleton className="size-6 rounded-full" /></td>
+                    <td className="p-3"><Skeleton className="h-6 w-20 rounded-full" /></td>
+                  </tr>
+                ))
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={5} className="p-10 text-center text-muted-foreground">No projects found.</td></tr>
               ) : filtered.map((p) => (
