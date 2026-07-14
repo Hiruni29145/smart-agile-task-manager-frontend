@@ -68,12 +68,6 @@ export function TopNav({ onNewTask }: { onNewTask?: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {role === "manager" && (
-          <Button size="sm" className="hidden md:inline-flex gap-1.5 rounded-lg mr-1" onClick={onNewTask}>
-            <Plus className="size-4" /> New Task
-          </Button>
-        )}
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative rounded-full">

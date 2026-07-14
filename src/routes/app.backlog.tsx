@@ -402,12 +402,9 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
   useEffect(() => {
     async function fetchSprints() {
       try {
-        const response = await apiClient<any>('/api/v1/sprints?page=1&limit=10');
+        const response = await apiClient<any>('/api/v1/sprints?page=1&limit=50');
         if (response.success && response.data && response.data.items) {
           setApiSprints(response.data.items);
-          if (response.data.items.length > 0) {
-             setSprint(response.data.items[0].id.toString());
-          }
         }
       } catch (e) {
         console.error("Failed to fetch sprints", e);
@@ -417,6 +414,16 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
     }
     fetchSprints();
   }, []);
+  
+  const availableSprints = apiSprints.filter(s => String(s.projectId) === proj || (s.project && String(s.project.id) === proj));
+  
+  useEffect(() => {
+    if (availableSprints.length > 0 && !availableSprints.find(s => String(s.id) === sprint)) {
+      setSprint(String(availableSprints[0].id));
+    } else if (availableSprints.length === 0) {
+      setSprint("");
+    }
+  }, [proj, apiSprints]);
   
   useEffect(() => {
     async function fetchAssignees() {
@@ -439,6 +446,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
   
   const [prio, setPrio] = useState("HIGH");
   const [status, setStatus] = useState("TODO");
+  const [taskType, setTaskType] = useState("FEATURE");
   const [deadline, setDeadline] = useState("2026-06-25");
   const [showPreview, setShowPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -474,6 +482,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
       assigneeId: assignee,
       priority: prio,
       status: status,
+      type: taskType,
       storyPoints: aiEst.storyPoints,
       estimatedTime: aiEst.estimatedTime,
       complexity: aiEst.complexity,
@@ -496,7 +505,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
           title: payload.title,
           description: payload.description,
           priority: payload.priority,
-          type: "Feature" as any, // keep type to prevent table break
+          type: payload.type as any, // keep type to prevent table break
           aiHours: payload.estimatedTime,
           storyPoints: payload.storyPoints,
           assignee: payload.assigneeId,
@@ -546,10 +555,10 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
             </div>
             <div>
               <Label>Sprint</Label>
-              <Select value={sprint} onValueChange={setSprint}>
-                <SelectTrigger><SelectValue placeholder={loadingSprints ? "Loading..." : "Select Sprint"} /></SelectTrigger>
+              <Select value={sprint} onValueChange={setSprint} disabled={availableSprints.length === 0}>
+                <SelectTrigger><SelectValue placeholder={loadingSprints ? "Loading..." : availableSprints.length === 0 ? "No Sprints" : "Select Sprint"} /></SelectTrigger>
                 <SelectContent>
-                  {apiSprints.map((s) => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                  {availableSprints.map((s) => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -581,7 +590,14 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label>Type</Label>
+              <Select value={taskType} onValueChange={setTaskType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{["FEATURE", "BUG", "CHORE", "SPIKE"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
             <div>
               <Label>Priority</Label>
               <Select value={prio} onValueChange={setPrio}>
