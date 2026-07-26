@@ -1,12 +1,28 @@
 // Define your API response and payload types here
 
 export interface Task {
-  id: string;
+  id: string | number;
   title: string;
   description: string;
+  type?: string;
+  priority?: string;
   status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE';
+  storyPoints?: number;
+  estimatedTime?: number;
+  realTime?: number;
+  complexity?: number;
+  confidence?: number;
+  deadline?: string;
+  projectId: string | number;
+  sprintId?: string | number | null;
   assigneeId?: string;
-  projectId: string;
+  assignee?: {
+    id: string;
+    name: string;
+  };
+  createdById?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface User {

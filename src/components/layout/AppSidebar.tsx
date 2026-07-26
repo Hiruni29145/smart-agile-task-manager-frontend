@@ -24,7 +24,6 @@ const devNav = [
   { to: "/dev/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/dev/tasks", label: "My Tasks", icon: ListTodo },
   { to: "/dev/sprint", label: "Sprint", icon: Calendar },
-  { to: "/dev/kanban", label: "Kanban", icon: Trello },
   { to: "/dev/profile", label: "Profile", icon: UserIcon },
 ];
 

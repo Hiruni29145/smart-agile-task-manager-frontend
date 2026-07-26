@@ -141,7 +141,7 @@ function Dashboard() {
               <p className="text-sm text-muted-foreground">Tracking completion across all ongoing projects.</p>
             </div>
             <Button variant="ghost" size="sm" asChild className="rounded-xl">
-              <Link to="/app/reports">View Reports <ArrowUpRight className="size-4 ml-1" /></Link>
+              <Link to="/app/sprint-planning">View All Sprints <ArrowUpRight className="size-4 ml-1" /></Link>
             </Button>
           </div>
           
@@ -176,7 +176,7 @@ function Dashboard() {
                 <p>No active sprints right now.</p>
               </div>
             ) : (
-              activeSprintsList.map((sp: any, i: number) => (
+              activeSprintsList.slice(0, 3).map((sp: any, i: number) => (
                 <div key={sp.sprintId || i} className="group p-4 rounded-2xl bg-muted/20 hover:bg-muted/40 transition-colors border border-transparent hover:border-border">
                   <div className="flex justify-between items-start mb-4">
                     <div>

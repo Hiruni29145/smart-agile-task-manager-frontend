@@ -62,6 +62,7 @@ function Backlog() {
   }, []);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+  const [loadingStatusId, setLoadingStatusId] = useState<string | null>(null);
   
   const [q, setQ] = useState("");
   const [priority, setPriority] = useState("all");
@@ -111,6 +112,7 @@ function Backlog() {
   };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
+    setLoadingStatusId(id);
     // Optimistic local update
     setLocalTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
     
@@ -128,6 +130,8 @@ function Backlog() {
     } catch (e: any) {
       console.error("Status update error", e);
       toast.error("An error occurred while updating status");
+    } finally {
+      setLoadingStatusId(null);
     }
   };
 
@@ -239,7 +243,8 @@ function Backlog() {
                   </td>
                   <td className="p-4" onClick={(e) => e.stopPropagation()}>
                     <Select value={t.status} onValueChange={(val) => handleStatusChange(t.id, val)}>
-                      <SelectTrigger className="h-8 text-xs w-[130px] bg-transparent hover:bg-muted/50 border-transparent hover:border-input shadow-none transition-all">
+                      <SelectTrigger disabled={loadingStatusId === t.id} className="h-8 text-xs w-[130px] bg-transparent hover:bg-muted/50 border-transparent hover:border-input shadow-none transition-all">
+                        {loadingStatusId === t.id && <Loader2 className="mr-2 size-3 animate-spin" />}
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -450,22 +455,65 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
   const [deadline, setDeadline] = useState("2026-06-25");
   const [showPreview, setShowPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   
-  const [aiEst, setAiEst] = useState({
+  const [aiEst, setAiEst] = useState<{
+    storyPoints: number;
+    estimatedTime: number;
+    complexity: number | string;
+    confidence: number;
+  }>({
     storyPoints: 0,
     estimatedTime: 0,
     complexity: 0,
     confidence: 0
   });
 
-  const handleGenerateAi = () => {
-    setAiEst({
-      storyPoints: 5,
-      estimatedTime: 8.5,
-      complexity: 7,
-      confidence: 90
-    });
-    setShowPreview(true);
+  const handleGenerateAi = async () => {
+    if (!title) {
+      toast.error("Please enter a title for AI estimation");
+      return;
+    }
+    
+    setIsGeneratingAi(true);
+    
+    try {
+      const response = await fetch("http://127.0.0.1:8083/api/predict", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          task_name: title,
+          description: desc || "",
+          priority: prio === "CRITICAL" ? "Critical" : prio === "HIGH" ? "High" : prio === "MEDIUM" ? "Medium" : "Low",
+          task_type: taskType === "FEATURE" ? "Feature" : taskType === "BUG" ? "Bug" : taskType === "CHORE" ? "Chore" : "Spike"
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to generate AI estimation. Status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log("AI Prediction API Response:", data);
+      
+      const estimatedTime = parseFloat(data["Estimated Hours"]?.replace('h', '') || '0');
+      const confidence = parseFloat(data["Confidence Score"]?.replace('%', '') || '0');
+      
+      setAiEst({
+        storyPoints: data["Story Points"] || 0,
+        estimatedTime: estimatedTime,
+        complexity: data["Complexity"] || "Medium",
+        confidence: confidence
+      });
+      setShowPreview(true);
+    } catch (e: any) {
+      console.error("AI Prediction API Error:", e);
+      toast.error(e.message || "An error occurred during AI estimation");
+    } finally {
+      setIsGeneratingAi(false);
+    }
   };
 
   const handleCreate = async () => {
@@ -473,6 +521,16 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
     
     setIsSubmitting(true);
     
+    let complexityNum = 5;
+    if (typeof aiEst.complexity === 'string') {
+      const lower = aiEst.complexity.toLowerCase();
+      if (lower === 'high') complexityNum = 8;
+      else if (lower === 'medium') complexityNum = 5;
+      else if (lower === 'low') complexityNum = 2;
+    } else {
+      complexityNum = aiEst.complexity;
+    }
+
     // Construct the requested payload
     const payload = {
       title,
@@ -485,7 +543,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
       type: taskType,
       storyPoints: aiEst.storyPoints,
       estimatedTime: aiEst.estimatedTime,
-      complexity: aiEst.complexity,
+      complexity: complexityNum,
       confidence: aiEst.confidence,
       deadline
     };
@@ -511,7 +569,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
           assignee: payload.assigneeId,
           status: payload.status.toLowerCase(), // mapping status for local table
           confidence: payload.confidence,
-          complexity: payload.complexity >= 7 ? "High" : "Medium",
+          complexity: typeof payload.complexity === 'string' ? payload.complexity : (payload.complexity >= 7 ? "High" : "Medium"),
           projectId: proj,
         };
         
@@ -537,7 +595,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if(!o) setShowPreview(false); }}>
       <DialogTrigger asChild><Button className="gap-1.5"><Plus className="size-4" /> Create task</Button></DialogTrigger>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader><DialogTitle>Create new task</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Implement…" /></div>
@@ -614,8 +672,9 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
             </div>
           </div>
 
-          <Button variant="outline" type="button" className="w-full gap-2" onClick={handleGenerateAi}>
-            <Sparkles className="size-4" /> Generate AI estimation
+          <Button variant="outline" type="button" className="w-full gap-2" onClick={handleGenerateAi} disabled={isGeneratingAi}>
+            {isGeneratingAi ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />} 
+            {isGeneratingAi ? "Generating AI estimation..." : "Generate AI estimation"}
           </Button>
 
           {showPreview && (
@@ -633,7 +692,7 @@ function CreateTaskDialog({ onAdd }: { onAdd?: (t: any) => void }) {
           )}
         </div>
         <DialogFooter>
-          <Button onClick={handleCreate} disabled={isSubmitting}>
+          <Button onClick={handleCreate} disabled={isSubmitting || !showPreview}>
             {isSubmitting ? <><Loader2 className="mr-2 size-4 animate-spin" /> Creating...</> : "Create task"}
           </Button>
         </DialogFooter>

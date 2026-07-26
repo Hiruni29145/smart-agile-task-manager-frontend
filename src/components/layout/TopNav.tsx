@@ -27,6 +27,8 @@ export function TopNav({ onNewTask }: { onNewTask?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
 
   const [profile, setProfile] = useState<{ firstName?: string; lastName?: string; avatar?: string } | null>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -39,8 +41,44 @@ export function TopNav({ onNewTask }: { onNewTask?: () => void }) {
         console.error("Failed to fetch profile in nav:", error);
       }
     };
+    const fetchNotifications = async () => {
+      try {
+        const response = await apiClient<any>("/api/v1/notifications");
+        if (response.success && response.data) {
+          setNotifications(response.data.items || []);
+          setUnreadCount(response.data.stats?.totalUnread || 0);
+        }
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+      }
+    };
     fetchProfile();
+    fetchNotifications();
   }, []);
+
+  const handleMarkAllRead = async () => {
+    try {
+      const response = await apiClient<any>("/api/v1/notifications/read/all", { method: 'PUT' });
+      if (response.success) {
+        setUnreadCount(0);
+        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+        toast.success("All marked as read");
+      }
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+      toast.error("Failed to mark notifications as read");
+    }
+  };
+
+  const formatTimeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} hr ago`;
+    return `${Math.floor(hrs / 24)} d ago`;
+  };
 
   const segments = path.split("/").filter(Boolean);
 
@@ -72,26 +110,25 @@ export function TopNav({ onNewTask }: { onNewTask?: () => void }) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative rounded-full">
               <Bell className="size-4" />
-              <span className="absolute top-2 right-2 size-1.5 rounded-full bg-primary animate-pulse" />
+              {unreadCount > 0 && (
+                <span className="absolute top-2 right-2 size-1.5 rounded-full bg-primary animate-pulse" />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80 rounded-xl">
             <DropdownMenuLabel className="flex items-center justify-between pb-2">
               <span>Notifications</span>
-              <Button variant="ghost" size="sm" className="h-auto p-0 text-xs font-normal text-muted-foreground hover:text-foreground" onClick={() => toast.success("All marked as read")}>
+              <Button variant="ghost" size="sm" className="h-auto p-0 text-xs font-normal text-muted-foreground hover:text-foreground" onClick={handleMarkAllRead}>
                 Mark all as read
               </Button>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {[
-              { t: "AI predicted 8.5h for new task", s: "2 min ago" },
-              { t: "Marcus assigned you a Critical bug", s: "12 min ago" },
-              { t: "Sprint 14 ends in 2 days", s: "1 hr ago" },
-              { t: "Aria completed 'Dark mode tokens'", s: "2 hr ago" },
-            ].map((n, i) => (
-              <DropdownMenuItem key={i} className="flex flex-col items-start gap-1 py-3 px-3 cursor-pointer">
-                <span className="text-sm font-medium leading-none">{n.t}</span>
-                <span className="text-xs text-muted-foreground">{n.s}</span>
+            {notifications.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">No notifications</div>
+            ) : notifications.slice(0, 5).map((n) => (
+              <DropdownMenuItem key={n.id} className={`flex flex-col items-start gap-1 py-3 px-3 cursor-pointer ${!n.isRead ? 'bg-muted/50' : ''}`}>
+                <span className="text-sm font-medium leading-none">{n.title}</span>
+                <span className="text-xs text-muted-foreground">{formatTimeAgo(n.createdAt)}</span>
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />

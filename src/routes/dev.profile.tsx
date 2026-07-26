@@ -1,34 +1,232 @@
 import { createFileRoute, useRouterState } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Switch } from "@/components/ui/switch";
-import { useTheme } from "@/lib/theme";
-import { Bell, CheckCircle2, MessageSquare, AlertCircle, User, UploadCloud, Clock, Mail, Briefcase } from "lucide-react";
+import { Bell, CheckCircle2, MessageSquare, AlertCircle, User, UploadCloud, Clock, Phone, Camera, ImageIcon, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { apiClient } from "@/api/client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dev/profile")({ component: DevProfile });
+
+function timeAgo(dateString: string) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + "y ago";
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + "mo ago";
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + "d ago";
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + "h ago";
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + "m ago";
+  return Math.floor(seconds) + "s ago";
+}
 
 function DevProfile() {
   const hash = useRouterState({ select: (s) => s.location.hash });
   const [activeTab, setActiveTab] = useState("profile");
-  const { theme, setTheme } = useTheme();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Profile State
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [avatarPreview, setAvatarPreview] = useState("");
+  
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  
+  // Notifications State
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   useEffect(() => {
     if (hash === "notifications") {
       setActiveTab("notifications");
     }
   }, [hash]);
   
-  const notifications = [
-    { id: 1, title: "Alex assigned you task PROJ-42", time: "10m ago", icon: MessageSquare, color: "text-blue-500", bg: "bg-blue-500/10", unread: true },
-    { id: 2, title: "Sprint 14 has started", time: "2h ago", icon: Bell, color: "text-primary", bg: "bg-primary/10", unread: true },
-    { id: 3, title: "Build failed for frontend-app", time: "5h ago", icon: AlertCircle, color: "text-destructive", bg: "bg-destructive/10", unread: false },
-    { id: 4, title: "AI completed estimation for Kanban task", time: "1d ago", icon: CheckCircle2, color: "text-emerald-500", bg: "bg-emerald-500/10", unread: false },
-  ];
+  // Fetch profile data on mount
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await apiClient<any>("/api/v1/auth/me");
+        if (response.success && response.data) {
+          const { firstName, lastName, phone, avatar } = response.data;
+          if (firstName) setFirstName(firstName);
+          if (lastName) setLastName(lastName);
+          if (phone) setPhoneNumber(phone);
+          if (avatar) setAvatarPreview(avatar);
+        }
+      } catch (error) {
+        console.error("Failed to fetch profile:", error);
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+    
+    fetchProfile();
+  }, []);
+  
+  // Fetch notifications
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        if (page === 1) setIsLoadingNotifications(true);
+        else setIsLoadingMore(true);
+        
+        const response = await apiClient<any>(`/api/v1/notifications?page=${page}`);
+        if (response.success && response.data) {
+          if (page === 1) {
+            setNotifications(response.data.items || []);
+          } else {
+            setNotifications(prev => [...prev, ...(response.data.items || [])]);
+          }
+          setUnreadCount(response.data.stats?.totalUnread || 0);
+          setHasNextPage(response.data.meta?.hasNextPage || false);
+        }
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+      } finally {
+        setIsLoadingNotifications(false);
+        setIsLoadingMore(false);
+      }
+    };
+    fetchNotifications();
+  }, [page]);
+
+  const handleMarkAsRead = async (id: number) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
+
+    try {
+      await apiClient(`/api/v1/notifications/read/${id}`, {
+        method: "PUT"
+      });
+    } catch (error) {
+      console.error(`Failed to mark notification ${id} as read:`, error);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: false } : n));
+      setUnreadCount(prev => prev + 1);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    setUnreadCount(0);
+
+    try {
+      await apiClient(`/api/v1/notifications/read/all`, {
+        method: "PUT"
+      });
+    } catch (error) {
+      console.error(`Failed to mark all notifications as read:`, error);
+    }
+  };
+
+  const getNotificationStyle = (type: string) => {
+    switch (type) {
+      case 'AUTH':
+        return { icon: User, color: "text-blue-500", bg: "bg-blue-500/10" };
+      case 'SUCCESS':
+        return { icon: CheckCircle2, color: "text-emerald-500", bg: "bg-emerald-500/10" };
+      case 'INFO':
+      default:
+        return { icon: Bell, color: "text-primary", bg: "bg-primary/10" };
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const token = localStorage.getItem('accessToken');
+      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+      
+      const response = await fetch(`${BASE_URL}/api/v1/storage/upload/profile`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) throw new Error("Failed to upload image");
+      
+      const data = await response.json();
+      if (data.success && data.data?.url) {
+        setAvatarPreview(data.data.url);
+      }
+    } catch (error) {
+      console.error("Upload error:", error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFileUpload(e.target.files[0]);
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    setIsSaving(true);
+    setSaveSuccess(false);
+    try {
+      const response = await apiClient("/api/v1/auth/profile/update", {
+        method: "PUT",
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          phoneNumber,
+          avatar: avatarPreview
+        })
+      });
+      if (response.success) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }
+    } catch (error) {
+      console.error("Save error:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="pb-20">
@@ -64,7 +262,9 @@ function DevProfile() {
               <div className="flex items-center gap-3">
                 <Bell className="size-4" /> Notifications
               </div>
-              <Badge variant="secondary" className="bg-primary text-primary-foreground rounded-full px-1.5 min-w-[20px] text-center border-0">2</Badge>
+              {unreadCount > 0 && (
+                <Badge variant="secondary" className="bg-primary text-primary-foreground rounded-full px-1.5 min-w-[20px] text-center border-0">{unreadCount}</Badge>
+              )}
             </button>
           </nav>
         </aside>
@@ -72,18 +272,101 @@ function DevProfile() {
         {/* Settings Content */}
         <main className="flex-1 min-w-0">
           {activeTab === "profile" && (
+            isLoadingProfile ? (
+              <div className="space-y-8 animate-in fade-in duration-500">
+                <div className="rounded-3xl border bg-card p-8 shadow-sm">
+                  <Skeleton className="h-6 w-40 mb-6" />
+                  <div className="flex gap-6">
+                    <Skeleton className="size-24 rounded-full" />
+                    <div className="space-y-3 flex-1">
+                      <div className="flex gap-3">
+                        <Skeleton className="h-10 w-32 rounded-xl" />
+                        <Skeleton className="h-10 w-24 rounded-xl" />
+                      </div>
+                      <Skeleton className="h-4 w-64" />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-3xl border bg-card p-8 shadow-sm">
+                  <Skeleton className="h-6 w-40 mb-6" />
+                  <div className="grid sm:grid-cols-2 gap-6">
+                    <div className="space-y-2.5">
+                      <Skeleton className="h-5 w-24" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                    </div>
+                    <div className="space-y-2.5">
+                      <Skeleton className="h-5 w-24" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                    </div>
+                    <div className="space-y-2.5 sm:col-span-2">
+                      <Skeleton className="h-5 w-32" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-3xl border bg-card p-8 shadow-sm ring-1 ring-primary/5">
                 <h2 className="text-xl font-bold mb-6">Profile Picture</h2>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-                  <Avatar className="size-24 border-4 shadow-md ring-2 ring-primary/10">
-                    <AvatarImage src="https://api.dicebear.com/7.x/notionists/svg?seed=Aria" />
-                    <AvatarFallback>AC</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 space-y-3">
+                <div 
+                  className={cn(
+                    "relative flex flex-col sm:flex-row items-start sm:items-center gap-6 p-6 rounded-2xl border-2 border-dashed transition-all duration-300",
+                    isDragging ? "border-primary bg-primary/5 scale-[1.02]" : "border-muted-foreground/20 hover:border-primary/50 hover:bg-muted/30"
+                  )}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <div className="relative group/avatar cursor-pointer" onClick={() => !isUploading && fileInputRef.current?.click()}>
+                    <Avatar className={cn("size-24 border-4 shadow-md ring-2 ring-primary/10 transition-transform duration-300", !isUploading && "group-hover/avatar:scale-105")}>
+                      <AvatarImage src={avatarPreview} className={cn(isUploading && "opacity-50 blur-sm transition-all")} />
+                      <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
+                        {firstName ? firstName.charAt(0).toUpperCase() : ""}{lastName ? lastName.charAt(0).toUpperCase() : ""}
+                      </AvatarFallback>
+                    </Avatar>
+                    
+                    {isUploading && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Loader2 className="size-6 text-primary animate-spin drop-shadow-md" />
+                      </div>
+                    )}
+                    
+                    {!isUploading && (
+                      <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-300">
+                        <Camera className="size-6 text-white drop-shadow-md" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex-1 space-y-4">
                     <div className="flex flex-wrap gap-3">
-                      <Button className="rounded-xl gap-2"><UploadCloud className="size-4" /> Upload new image</Button>
-                      <Button variant="outline" className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20">Remove</Button>
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept="image/png, image/jpeg, image/gif"
+                        onChange={handleFileSelect}
+                      />
+                      <Button 
+                        onClick={() => fileInputRef.current?.click()} 
+                        disabled={isUploading}
+                        className="rounded-xl gap-2 shadow-sm"
+                      >
+                        {isUploading ? (
+                          <><Loader2 className="size-4 animate-spin" /> Uploading...</>
+                        ) : (
+                          <><UploadCloud className="size-4" /> Upload new image</>
+                        )}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        disabled={isUploading}
+                        onClick={() => setAvatarPreview("")}
+                        className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                      >
+                        Remove
+                      </Button>
                     </div>
                     <p className="text-sm text-muted-foreground">At least 256x256px PNG or JPG file. Max 2MB.</p>
                   </div>
@@ -93,45 +376,87 @@ function DevProfile() {
               <div className="rounded-3xl border bg-card p-8 shadow-sm ring-1 ring-primary/5">
                 <h2 className="text-xl font-bold mb-6">Personal Details</h2>
                 <div className="grid sm:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground ml-1">Full Name</Label>
+                  <div className="space-y-2 group">
+                    <Label className="text-muted-foreground ml-1 group-focus-within:text-primary transition-colors">First Name</Label>
                     <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                      <Input defaultValue="Aria Chen" className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" />
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                      <Input 
+                        value={firstName} 
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" 
+                      />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground ml-1">Email Address</Label>
+                  <div className="space-y-2 group">
+                    <Label className="text-muted-foreground ml-1 group-focus-within:text-primary transition-colors">Last Name</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                      <Input defaultValue="aria@agilix.app" className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" />
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                      <Input 
+                        value={lastName} 
+                        onChange={(e) => setLastName(e.target.value)}
+                        className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" 
+                      />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground ml-1">Job Title</Label>
+                  <div className="space-y-2 group sm:col-span-2">
+                    <Label className="text-muted-foreground ml-1 group-focus-within:text-primary transition-colors">Phone Number</Label>
                     <div className="relative">
-                      <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                      <Input defaultValue="Senior Frontend Engineer" className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground ml-1">Timezone</Label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                      <Input defaultValue="UTC+1 (CET)" className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" />
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                      <Input 
+                        value={phoneNumber} 
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        className="pl-10 h-12 bg-muted/30 rounded-xl focus:bg-background transition-colors" 
+                      />
                     </div>
                   </div>
                 </div>
               </div>
 
-
-              <div className="flex justify-end pt-2">
-                <Button size="lg" className="rounded-xl px-10 text-base shadow-md hover:shadow-lg transition-all">Save Changes</Button>
+              <div className="flex justify-end pt-2 items-center gap-4">
+                {saveSuccess && (
+                  <span className="text-sm font-medium text-emerald-500 flex items-center gap-1.5 animate-in fade-in">
+                    <CheckCircle2 className="size-4" /> Profile updated
+                  </span>
+                )}
+                <Button 
+                  size="lg" 
+                  onClick={handleSaveChanges}
+                  disabled={isSaving || isUploading}
+                  className="rounded-xl px-10 text-base shadow-md hover:shadow-lg transition-all gap-2"
+                >
+                  {isSaving ? (
+                    <><Loader2 className="size-4 animate-spin" /> Saving...</>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
               </div>
             </div>
+            )
           )}
 
           {activeTab === "notifications" && (
+            isLoadingNotifications ? (
+              <div className="space-y-6 animate-in fade-in duration-500">
+                <div className="rounded-3xl border bg-card shadow-sm overflow-hidden flex flex-col">
+                  <div className="p-6 border-b bg-muted/10">
+                    <Skeleton className="h-7 w-40 mb-2" />
+                    <Skeleton className="h-5 w-64" />
+                  </div>
+                  <div className="divide-y flex-1">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="p-5 flex items-start gap-4">
+                        <Skeleton className="size-11 rounded-2xl" />
+                        <div className="flex-1 space-y-2 py-1">
+                          <Skeleton className="h-5 w-3/4" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-3xl border bg-card shadow-sm overflow-hidden flex flex-col ring-1 ring-primary/5">
                 <div className="p-6 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-muted/10">
@@ -139,44 +464,73 @@ function DevProfile() {
                     <h2 className="text-xl font-bold">Activity Inbox</h2>
                     <p className="text-sm text-muted-foreground mt-1">Review your recent alerts and project updates.</p>
                   </div>
-                  <Button variant="outline" size="sm" className="rounded-lg gap-2 self-start sm:self-auto"><CheckCircle2 className="size-4" /> Mark all as read</Button>
+                  {unreadCount > 0 && (
+                    <Button onClick={handleMarkAllAsRead} variant="outline" size="sm" className="rounded-lg gap-2 self-start sm:self-auto"><CheckCircle2 className="size-4" /> Mark all as read</Button>
+                  )}
                 </div>
                 
                 <div className="divide-y flex-1">
-                  {notifications.map(n => (
-                    <div key={n.id} className={cn(
-                      "p-5 transition-colors flex items-start gap-4 relative group",
-                      n.unread ? "bg-primary/[0.02] hover:bg-primary/5" : "hover:bg-muted/30"
-                    )}>
-                      {n.unread && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
-                      
-                      <div className={`p-3 rounded-2xl ${n.bg} shrink-0 ring-1 ring-inset ring-foreground/5`}>
-                        <n.icon className={`size-5 ${n.color}`} />
+                  {notifications.map(n => {
+                    const style = getNotificationStyle(n.type);
+                    return (
+                      <div key={n.id} className={cn(
+                        "p-5 transition-colors flex items-start gap-4 relative group",
+                        !n.isRead ? "bg-primary/[0.02] hover:bg-primary/5" : "hover:bg-muted/30"
+                      )}>
+                        {!n.isRead && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
+                        
+                        <div className={`p-3 rounded-2xl ${style.bg} shrink-0 ring-1 ring-inset ring-foreground/5`}>
+                          <style.icon className={`size-5 ${style.color}`} />
+                        </div>
+                        
+                        <div className="flex-1 min-w-0 pt-0.5">
+                          <p className={cn("text-base", !n.isRead ? "font-bold text-foreground" : "font-medium text-foreground/80")}>
+                            {n.message}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-1.5 flex items-center gap-2">
+                            <Clock className="size-3" /> {timeAgo(n.createdAt)}
+                          </p>
+                        </div>
+                        
+                        {!n.isRead && (
+                          <div className="shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button 
+                              onClick={() => handleMarkAsRead(n.id)}
+                              variant="ghost" 
+                              size="icon" 
+                              className="rounded-full size-8 text-muted-foreground hover:text-foreground bg-background shadow-sm border"
+                            >
+                              <CheckCircle2 className="size-4" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      
-                      <div className="flex-1 min-w-0 pt-0.5">
-                        <p className={cn("text-base", n.unread ? "font-bold text-foreground" : "font-medium text-foreground/80")}>
-                          {n.title}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1.5 flex items-center gap-2">
-                          <Clock className="size-3" /> {n.time}
-                        </p>
-                      </div>
-                      
-                      <div className="shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="icon" className="rounded-full size-8 text-muted-foreground hover:text-foreground bg-background shadow-sm border">
-                          <CheckCircle2 className="size-4" />
-                        </Button>
-                      </div>
+                    );
+                  })}
+                  
+                  {notifications.length === 0 && (
+                    <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
+                      <Bell className="size-12 mb-4 opacity-20" />
+                      <p>You're all caught up!</p>
                     </div>
-                  ))}
+                  )}
                 </div>
                 
-                <div className="p-4 border-t bg-muted/10 text-center">
-                  <Button variant="ghost" className="text-muted-foreground hover:text-foreground w-full rounded-xl">View older notifications...</Button>
-                </div>
+                {hasNextPage && (
+                  <div className="p-4 border-t bg-muted/10 text-center">
+                    <Button 
+                      onClick={() => setPage(p => p + 1)} 
+                      disabled={isLoadingMore}
+                      variant="ghost" 
+                      className="text-muted-foreground hover:text-foreground w-full rounded-xl"
+                    >
+                      {isLoadingMore ? "Loading..." : "View older notifications..."}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
+            )
           )}
         </main>
       </div>

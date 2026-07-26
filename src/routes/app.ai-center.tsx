@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { Sparkles, Wand2, Activity, Target, Zap, Clock } from "lucide-react";
+import { apiClient } from "@/api/client";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,28 +10,128 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { aiHistory } from "@/lib/mock";
+
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from "recharts";
 
 export const Route = createFileRoute("/app/ai-center")({ component: AICenter });
 
 function AICenter() {
-  const [title, setTitle] = useState("Implement realtime presence for collab editor");
-  const [isPredicting, setIsPredicting] = useState(false);
-  const [shown, setShown] = useState(true);
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+  const [priority, setPriority] = useState("High");
+  const [type, setType] = useState("Feature");
   
-  const len = title.length;
-  const aiH = Math.max(2, len * 0.35);
-  const storyPoints = aiH < 6 ? 3 : aiH < 12 ? 5 : 8;
-  const complexity = aiH < 6 ? "Low" : aiH < 12 ? "Medium" : "High";
+  const [isPredicting, setIsPredicting] = useState(false);
+  const [aiEst, setAiEst] = useState<{
+    storyPoints: number;
+    estimatedTime: number;
+    complexity: string;
+    confidence: number;
+  } | null>(null);
 
-  const handlePredict = () => {
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+
+  const fetchHistory = async () => {
+    try {
+      const response = await apiClient<any>('/api/v1/ai-center/estimations');
+      if (response.success && response.data && response.data.items) {
+        setHistoryItems(response.data.items);
+      }
+    } catch (error) {
+      console.error("Failed to fetch prediction history:", error);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const chartData = historyItems.slice().reverse().map((item, i) => ({
+    id: `P${i + 1}`,
+    accuracy: item.confidenceScore || 0,
+  }));
+
+  const handlePredict = async () => {
+    if (!title) {
+      toast.error("Please enter a task title");
+      return;
+    }
+    
     setIsPredicting(true);
-    setShown(false);
-    setTimeout(() => {
+    setAiEst(null);
+    
+    try {
+      const response = await fetch("http://127.0.0.1:8083/api/predict", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          task_name: title,
+          description: desc,
+          priority: priority,
+          task_type: type
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to generate AI estimation. Status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      const estimatedTime = parseFloat(data["Estimated Hours"]?.replace('h', '') || '0');
+      const confidence = parseFloat(data["Confidence Score"]?.replace('%', '') || '0');
+      const storyPoints = data["Story Points"] || 0;
+      const complexity = data["Complexity"] || "Medium";
+      
+      setAiEst({
+        storyPoints,
+        estimatedTime,
+        complexity,
+        confidence
+      });
+      
+      const optimisticItem = {
+        id: `temp-${Date.now()}`,
+        taskTitle: title,
+        estimatedHours: estimatedTime,
+        storyPoints: storyPoints,
+        complexity: complexity,
+        confidenceScore: confidence
+      };
+      
+      setHistoryItems(prev => [optimisticItem, ...prev]);
+      
+      apiClient('/api/v1/ai-center/estimations', {
+        method: 'POST',
+        body: JSON.stringify({
+          taskTitle: title,
+          description: desc || "No description provided",
+          priority: priority.toUpperCase(),
+          taskType: type.toUpperCase(),
+          estimatedHours: estimatedTime,
+          storyPoints: storyPoints,
+          complexity: complexity,
+          confidenceScore: confidence
+        })
+      }).then(() => {
+        fetchHistory();
+      }).catch(saveError => {
+        console.error("Failed to save estimation to history:", saveError);
+        toast.error("Estimation generated, but failed to save to history.");
+        setHistoryItems(prev => prev.filter(i => i.id !== optimisticItem.id));
+      });
+      
+    } catch (error: any) {
+       console.error("AI Estimation error:", error);
+       toast.error(error.message || "An error occurred during AI estimation");
+    } finally {
       setIsPredicting(false);
-      setShown(true);
-    }, 800);
+    }
   };
 
   return (
@@ -44,33 +146,7 @@ function AICenter() {
         </div>
       </div>
 
-      {/* Top Overview Stats */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="border rounded-3xl p-6 bg-card flex flex-col justify-between hover:shadow-md transition-all">
-          <div className="flex items-center gap-3 mb-4 text-muted-foreground">
-            <Target className="size-5" /> <span className="font-medium text-sm">Predictions Made</span>
-          </div>
-          <div className="text-4xl font-bold">142</div>
-        </div>
-        <div className="border rounded-3xl p-6 bg-primary/5 border-primary/20 flex flex-col justify-between hover:shadow-md transition-all">
-          <div className="flex items-center gap-3 mb-4 text-primary">
-            <Activity className="size-5" /> <span className="font-medium text-sm">Model Accuracy</span>
-          </div>
-          <div className="text-4xl font-bold text-primary">94.2%</div>
-        </div>
-        <div className="border rounded-3xl p-6 bg-card flex flex-col justify-between hover:shadow-md transition-all">
-          <div className="flex items-center gap-3 mb-4 text-emerald-600">
-            <Clock className="size-5" /> <span className="font-medium text-sm">Time Saved (hrs)</span>
-          </div>
-          <div className="text-4xl font-bold">38</div>
-        </div>
-        <div className="border rounded-3xl p-6 bg-card flex flex-col justify-between hover:shadow-md transition-all">
-          <div className="flex items-center gap-3 mb-4 text-muted-foreground">
-            <Wand2 className="size-5" /> <span className="font-medium text-sm">Engine Version</span>
-          </div>
-          <div className="text-4xl font-bold">v3.2</div>
-        </div>
-      </div>
+
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Input Form */}
@@ -83,19 +159,19 @@ function AICenter() {
             </div>
             <div className="space-y-2">
               <Label className="text-muted-foreground">Description & Context</Label>
-              <Textarea className="bg-muted/50 focus:bg-background transition-colors resize-none" rows={4} placeholder="Provide context, acceptance criteria, or technical details..." />
+              <Textarea className="bg-muted/50 focus:bg-background transition-colors resize-none" rows={4} placeholder="Provide context, acceptance criteria, or technical details..." value={desc} onChange={(e) => setDesc(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-muted-foreground">Priority</Label>
-                <Select defaultValue="High">
+                <Select value={priority} onValueChange={setPriority}>
                   <SelectTrigger className="h-11 bg-muted/50 rounded-xl"><SelectValue /></SelectTrigger>
                   <SelectContent>{["Low", "Medium", "High", "Critical"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label className="text-muted-foreground">Type</Label>
-                <Select defaultValue="Feature">
+                <Select value={type} onValueChange={setType}>
                   <SelectTrigger className="h-11 bg-muted/50 rounded-xl"><SelectValue /></SelectTrigger>
                   <SelectContent>{["Feature", "Bug", "Chore", "Spike"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
@@ -110,41 +186,51 @@ function AICenter() {
 
         {/* Prediction Output */}
         <div className="lg:col-span-7 flex flex-col">
-          <div className={`flex-1 rounded-3xl border shadow-sm relative overflow-hidden transition-all duration-500 flex flex-col justify-center p-8 ${shown ? "bg-gradient-to-br from-primary/10 via-card to-info/5 border-primary/30 scale-100 opacity-100" : "bg-card scale-95 opacity-50 blur-sm"}`}>
-            {!shown && isPredicting && (
-               <div className="absolute inset-0 flex items-center justify-center z-10 backdrop-blur-md bg-background/50">
+          {aiEst ? (
+            <div className="flex-1 rounded-3xl border shadow-sm relative overflow-hidden transition-all duration-500 flex flex-col justify-center p-8 bg-gradient-to-br from-primary/10 via-card to-info/5 border-primary/30">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary w-fit rounded-full text-xs font-bold uppercase tracking-wider mb-6">
+                <Sparkles className="size-3.5" /> AI Prediction Ready
+              </div>
+              
+              <h3 className="font-bold text-2xl mb-8 leading-tight">{title || "Untitled Task"}</h3>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
+                  <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Clock className="size-4"/> Estimated Hours</div>
+                  <div className="text-4xl font-bold tabular-nums text-primary">{aiEst.estimatedTime.toFixed(1)}h</div>
+                </div>
+                <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
+                  <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Target className="size-4"/> Story Points</div>
+                  <div className="text-4xl font-bold tabular-nums">{aiEst.storyPoints}</div>
+                </div>
+                <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
+                  <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Zap className="size-4"/> Complexity</div>
+                  <div className={`text-4xl font-bold ${aiEst.complexity === "High" ? "text-rose-500" : aiEst.complexity === "Medium" ? "text-amber-500" : "text-emerald-500"}`}>{aiEst.complexity}</div>
+                </div>
+                <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
+                  <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Activity className="size-4"/> Confidence Score</div>
+                  <div className="text-4xl font-bold tabular-nums text-success">{aiEst.confidence}%</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 rounded-3xl border border-dashed shadow-sm flex flex-col items-center justify-center p-8 bg-muted/10 text-muted-foreground min-h-[300px]">
+              {isPredicting ? (
                  <div className="flex flex-col items-center gap-4">
-                   <div className="size-16 rounded-full border-4 border-primary border-t-transparent animate-spin shadow-lg" />
-                   <p className="font-bold text-lg text-primary animate-pulse tracking-wide">Running Neural Models...</p>
+                   <div className="size-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                   <p className="font-medium text-primary animate-pulse">Running Neural Models...</p>
                  </div>
-               </div>
-            )}
-            
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary w-fit rounded-full text-xs font-bold uppercase tracking-wider mb-6">
-              <Sparkles className="size-3.5" /> AI Prediction Ready
+              ) : (
+                 <div className="flex flex-col items-center gap-3 text-center max-w-sm">
+                   <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                     <Wand2 className="size-6 text-primary" />
+                   </div>
+                   <h3 className="font-semibold text-lg text-foreground">Waiting for input</h3>
+                   <p className="text-sm">Enter task details on the left and generate an estimate to see AI predictions here.</p>
+                 </div>
+              )}
             </div>
-            
-            <h3 className="font-bold text-2xl mb-8 leading-tight">{title || "Untitled Task"}</h3>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Clock className="size-4"/> Estimated Hours</div>
-                <div className="text-4xl font-bold tabular-nums text-primary">{aiH.toFixed(1)}h</div>
-              </div>
-              <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Target className="size-4"/> Story Points</div>
-                <div className="text-4xl font-bold tabular-nums">{storyPoints}</div>
-              </div>
-              <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Zap className="size-4"/> Complexity</div>
-                <div className={`text-4xl font-bold ${complexity === "High" ? "text-rose-500" : complexity === "Medium" ? "text-amber-500" : "text-emerald-500"}`}>{complexity}</div>
-              </div>
-              <div className="rounded-2xl border bg-background/60 backdrop-blur-xl p-5 hover:bg-background transition-colors shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2"><Activity className="size-4"/> Confidence Score</div>
-                <div className="text-4xl font-bold tabular-nums text-success">87%</div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -157,7 +243,7 @@ function AICenter() {
           </div>
           <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={aiHistory} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                 <defs>
                   <linearGradient id="accGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.4} />
@@ -192,18 +278,22 @@ function AICenter() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {aiHistory.slice().reverse().map((h) => {
-                  const sp = h.predicted < 6 ? 3 : h.predicted < 12 ? 5 : 8;
-                  const comp = h.predicted < 6 ? "Low" : h.predicted < 12 ? "Medium" : "High";
+                {loadingHistory ? (
+                  <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Loading history...</td></tr>
+                ) : historyItems.length === 0 ? (
+                  <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">No prediction history yet.</td></tr>
+                ) : historyItems.slice(0, 6).map((h) => {
+                  const comp = h.complexity || "Medium";
+                  const pString = typeof h.estimatedHours === 'number' ? h.estimatedHours.toFixed(1) : h.estimatedHours;
                   return (
                     <tr key={h.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-4 font-medium truncate max-w-[200px]">{h.task}</td>
-                      <td className="p-4 text-right tabular-nums font-semibold text-primary">{h.predicted}h</td>
-                      <td className="p-4 text-right tabular-nums">{sp}</td>
+                      <td className="p-4 font-medium truncate max-w-[200px]" title={h.taskTitle}>{h.taskTitle}</td>
+                      <td className="p-4 text-right tabular-nums font-semibold text-primary">{pString}h</td>
+                      <td className="p-4 text-right tabular-nums">{h.storyPoints}</td>
                       <td className="p-4 text-right">
                         <span className={`text-xs font-bold ${comp === "High" ? "text-rose-500" : comp === "Medium" ? "text-amber-500" : "text-emerald-500"}`}>{comp}</span>
                       </td>
-                      <td className="p-4 text-right tabular-nums text-success font-medium">{h.accuracy.toFixed(0)}%</td>
+                      <td className="p-4 text-right tabular-nums text-success font-medium">{h.confidenceScore}%</td>
                     </tr>
                   );
                 })}

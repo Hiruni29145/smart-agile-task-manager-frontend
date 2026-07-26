@@ -10,6 +10,24 @@ export const useTasks = () => {
   });
 };
 
+export const useDeveloperTasks = () => {
+  return useQuery({
+    queryKey: ['developerTasks'],
+    queryFn: tasksService.getDeveloperTasks,
+  });
+};
+
+export const useUpdateDeveloperTaskStatus = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string | number; status: string }) =>
+      tasksService.updateDeveloperTaskStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['developerTasks'] });
+    },
+  });
+};
+
 export const useCreateTask = () => {
   const queryClient = useQueryClient();
   

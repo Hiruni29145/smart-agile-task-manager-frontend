@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { tasks } from "@/lib/mock";
+import { useDeveloperTasks, useUpdateDeveloperTaskStatus } from "@/hooks/queries/useTasks";
 import { useState } from "react";
 import { PriorityBadge } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sparkles, LayoutGrid, List, Search, MoreHorizontal, Clock, Target, Play, Check, ChevronDown, AlignLeft } from "lucide-react";
+import { Sparkles, LayoutGrid, List, Search, MoreHorizontal, Clock, Target, Play, Check, ChevronDown, AlignLeft, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -22,41 +22,49 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/dev/tasks")({ component: MyTasks });
 
 const STATUS_OPTIONS = [
-  { value: "todo", label: "To Do", color: "bg-slate-500" },
-  { value: "in_progress", label: "In Progress", color: "bg-blue-500" },
-  { value: "review", label: "Review", color: "bg-amber-500" },
-  { value: "done", label: "Done", color: "bg-emerald-500" },
+  { value: "TODO", label: "To Do", color: "bg-slate-500" },
+  { value: "IN_PROGRESS", label: "In Progress", color: "bg-blue-500" },
+  { value: "REVIEW", label: "Review", color: "bg-amber-500" },
+  { value: "DONE", label: "Done", color: "bg-emerald-500" },
 ];
 
 const statusLabelMap: Record<string, string> = {
-  todo: "To Do", in_progress: "In Progress", review: "Review", done: "Done",
+  TODO: "To Do", IN_PROGRESS: "In Progress", REVIEW: "Review", DONE: "Done",
 };
 const statusColorMap: Record<string, string> = {
-  todo: "bg-slate-500", in_progress: "bg-blue-500", review: "bg-amber-500", done: "bg-emerald-500",
+  TODO: "bg-slate-500", IN_PROGRESS: "bg-blue-500", REVIEW: "bg-amber-500", DONE: "bg-emerald-500",
 };
 
 function MyTasks() {
-  const mine = tasks.filter((t) => t.assignee === "u1");
+  const { data: tasksResponse, isLoading, isError } = useDeveloperTasks();
+  const allTasks = tasksResponse?.data?.items || [];
+  const updateStatusMutation = useUpdateDeveloperTaskStatus();
+  const isUpdating = updateStatusMutation.isPending;
+  const updatingTaskId = updateStatusMutation.variables?.id;
+  
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [searchQ, setSearchQ] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | number | null>(null);
   
   // Log Time Dialog state
   const [isLogTimeOpen, setIsLogTimeOpen] = useState(false);
   const [logHours, setLogHours] = useState("");
 
-  const filteredTasks = mine.filter(t => {
+  const filteredTasks = allTasks.filter(t => {
     if (filterStatus !== "All" && t.status !== filterStatus) return false;
     if (searchQ && !t.title.toLowerCase().includes(searchQ.toLowerCase())) return false;
     return true;
   });
 
-  const selected = mine.find((t) => t.id === selectedTaskId);
+  const selected = allTasks.find((t) => t.id === selectedTaskId);
 
-  const handleUpdateStatus = (taskId: string, newStatus: string) => {
-    // In a real app, update DB. Here we just toast.
-    toast.success(`Status updated to ${statusLabelMap[newStatus]}`);
+  const handleUpdateStatus = (taskId: string | number, newStatus: string) => {
+    toast.promise(updateStatusMutation.mutateAsync({ id: taskId, status: newStatus }), {
+      loading: 'Updating status...',
+      success: `Status updated to ${statusLabelMap[newStatus]}`,
+      error: 'Failed to update status',
+    });
   };
 
   const handleLogTime = () => {
@@ -65,6 +73,14 @@ function MyTasks() {
     setIsLogTimeOpen(false);
     setLogHours("");
   };
+
+  if (isLoading) {
+    return <div className="p-8 text-center text-muted-foreground">Loading tasks...</div>;
+  }
+
+  if (isError) {
+    return <div className="p-8 text-center text-destructive">Failed to load tasks.</div>;
+  }
 
   return (
     <div className="space-y-8 pb-20">
@@ -130,8 +146,12 @@ function MyTasks() {
                 </Badge>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button variant="outline" size="sm" className="h-7 text-xs rounded-lg gap-1 border-dashed">
-                      <div className={cn("size-1.5 rounded-full", statusColorMap[t.status])} />
+                    <Button variant="outline" size="sm" className="h-7 text-xs rounded-lg gap-1 border-dashed" disabled={isUpdating && updatingTaskId === t.id}>
+                      {isUpdating && updatingTaskId === t.id ? (
+                        <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                      ) : (
+                        <div className={cn("size-1.5 rounded-full", statusColorMap[t.status])} />
+                      )}
                       {statusLabelMap[t.status]}
                       <ChevronDown className="size-3 text-muted-foreground ml-1" />
                     </Button>
@@ -156,11 +176,11 @@ function MyTasks() {
               </p>
               
               <div className="pt-4 border-t flex items-center justify-between text-xs font-medium text-muted-foreground">
-                <PriorityBadge p={t.priority} />
+                <PriorityBadge p={t.priority || "MEDIUM"} />
                 <div className="flex items-center gap-3">
-                  <span className="flex items-center gap-1 text-primary/80" title="AI Estimated Hours"><Sparkles className="size-3" /> {t.aiHours}h</span>
-                  <span className="flex items-center gap-1" title="Actual Logged Hours"><Clock className="size-3" /> {t.actualHours ?? 0}h</span>
-                  <span className="flex items-center gap-1" title="Story Points"><Target className="size-3" /> {t.storyPoints}</span>
+                  <span className="flex items-center gap-1 text-primary/80" title="Estimated Hours"><Sparkles className="size-3" /> {t.estimatedTime || 0}h</span>
+                  <span className="flex items-center gap-1" title="Actual Logged Hours"><Clock className="size-3" /> {t.realTime || 0}h</span>
+                  <span className="flex items-center gap-1" title="Story Points"><Target className="size-3" /> {t.storyPoints || 0}</span>
                 </div>
               </div>
             </div>
@@ -179,7 +199,7 @@ function MyTasks() {
                 <th className="text-left p-4 font-semibold">Task</th>
                 <th className="text-left p-4 font-semibold w-36">Status</th>
                 <th className="text-left p-4 font-semibold w-28">Priority</th>
-                <th className="text-right p-4 font-semibold w-24">AI Est.</th>
+                <th className="text-right p-4 font-semibold w-24">Est. Time</th>
                 <th className="text-right p-4 font-semibold w-24">Logged</th>
                 <th className="text-center p-4 font-semibold w-16">SP</th>
               </tr>
@@ -194,8 +214,12 @@ function MyTasks() {
                   <td className="p-4" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 text-xs rounded-lg gap-2 justify-start w-full hover:bg-muted/50 border border-transparent hover:border-border">
-                          <div className={cn("size-2 rounded-full", statusColorMap[t.status])} />
+                        <Button variant="ghost" size="sm" className="h-8 text-xs rounded-lg gap-2 justify-start w-full hover:bg-muted/50 border border-transparent hover:border-border" disabled={isUpdating && updatingTaskId === t.id}>
+                          {isUpdating && updatingTaskId === t.id ? (
+                            <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                          ) : (
+                            <div className={cn("size-2 rounded-full", statusColorMap[t.status])} />
+                          )}
                           {statusLabelMap[t.status]}
                         </Button>
                       </DropdownMenuTrigger>
@@ -209,10 +233,10 @@ function MyTasks() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
-                  <td className="p-4"><PriorityBadge p={t.priority} /></td>
-                  <td className="p-4 text-right font-medium text-primary/80 tabular-nums"><Sparkles className="size-3 inline-block mr-1 opacity-50" />{t.aiHours}h</td>
-                  <td className="p-4 text-right font-medium tabular-nums">{t.actualHours ?? 0}h</td>
-                  <td className="p-4 text-center font-medium tabular-nums">{t.storyPoints}</td>
+                  <td className="p-4"><PriorityBadge p={t.priority || "MEDIUM"} /></td>
+                  <td className="p-4 text-right font-medium text-primary/80 tabular-nums"><Sparkles className="size-3 inline-block mr-1 opacity-50" />{t.estimatedTime || 0}h</td>
+                  <td className="p-4 text-right font-medium tabular-nums">{t.realTime || 0}h</td>
+                  <td className="p-4 text-center font-medium tabular-nums">{t.storyPoints || 0}</td>
                 </tr>
               ))}
               {filteredTasks.length === 0 && (
@@ -229,9 +253,9 @@ function MyTasks() {
       <Sheet open={!!selectedTaskId} onOpenChange={(o) => !o && setSelectedTaskId(null)}>
         <SheetContent className="sm:max-w-md overflow-y-auto">
           {selected && (() => {
-            const logged = selected.actualHours ?? 0;
-            const estimated = selected.aiHours;
-            const percent = Math.min((logged / estimated) * 100, 100);
+            const logged = selected.realTime || 0;
+            const estimated = selected.estimatedTime || 0;
+            const percent = estimated > 0 ? Math.min((logged / estimated) * 100, 100) : 0;
             const isOver = logged > estimated;
             
             return (
@@ -256,10 +280,14 @@ function MyTasks() {
                   <div className="flex flex-col gap-3">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full justify-between rounded-xl h-12 shadow-sm border-dashed">
+                        <Button variant="outline" className="w-full justify-between rounded-xl h-12 shadow-sm border-dashed" disabled={isUpdating && updatingTaskId === selected.id}>
                           <span className="flex items-center gap-2">
                             <span className="text-muted-foreground">Status:</span>
-                            <div className={cn("size-2 rounded-full", statusColorMap[selected.status])} />
+                            {isUpdating && updatingTaskId === selected.id ? (
+                              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <div className={cn("size-2 rounded-full", statusColorMap[selected.status])} />
+                            )}
                             <span className="font-semibold">{statusLabelMap[selected.status]}</span>
                           </span>
                           <ChevronDown className="size-4 text-muted-foreground" />
@@ -287,7 +315,7 @@ function MyTasks() {
                     <div>
                       <div className="flex justify-between text-sm font-bold mb-2">
                         <span className={isOver ? "text-destructive" : "text-foreground"}>{logged}h Logged</span>
-                        <span className="text-muted-foreground">{estimated}h AI Est.</span>
+                        <span className="text-muted-foreground">{estimated}h Est.</span>
                       </div>
                       <div className="h-3 bg-muted rounded-full overflow-hidden relative">
                         <div 
@@ -298,7 +326,7 @@ function MyTasks() {
                           <div className="absolute top-0 right-0 h-full w-full bg-destructive/20 border-l-2 border-destructive" style={{ left: '100%' }} />
                         )}
                       </div>
-                      {isOver && <p className="text-xs text-destructive mt-2 font-medium">You have exceeded the AI's estimation.</p>}
+                      {isOver && <p className="text-xs text-destructive mt-2 font-medium">You have exceeded the estimated time.</p>}
                     </div>
                   </div>
 
@@ -306,15 +334,15 @@ function MyTasks() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl border bg-card p-4">
                       <div className="text-xs text-muted-foreground mb-1">Priority</div>
-                      <PriorityBadge p={selected.priority} />
+                      <PriorityBadge p={selected.priority || "MEDIUM"} />
                     </div>
                     <div className="rounded-2xl border bg-card p-4">
                       <div className="text-xs text-muted-foreground mb-1">Story Points</div>
-                      <div className="text-xl font-bold">{selected.storyPoints}</div>
+                      <div className="text-xl font-bold">{selected.storyPoints || 0}</div>
                     </div>
                     <div className="rounded-2xl border bg-card p-4 bg-primary/[0.02]">
-                      <div className="text-xs text-primary/80 font-medium mb-1 flex items-center gap-1"><Sparkles className="size-3" /> AI Confidence</div>
-                      <div className="text-xl font-bold text-primary">{selected.confidence}%</div>
+                      <div className="text-xs text-primary/80 font-medium mb-1 flex items-center gap-1"><Sparkles className="size-3" /> Confidence</div>
+                      <div className="text-xl font-bold text-primary">{selected.confidence || 0}%</div>
                     </div>
                   </div>
                 </div>
