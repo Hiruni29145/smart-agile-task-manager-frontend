@@ -28,6 +28,9 @@ jobs:
     # Step 4: Project එක Build කරනවා (production-ready files ටික dist/ folder එකට හැදෙනවා)
     - name: Build Project
       run: npm run build
+      env:
+        VITE_API_BASE_URL: ${{ secrets.PROD_API_BASE_URL }}
+        VITE_AI_API_URL: ${{ secrets.PROD_AI_API_URL }}
 
     # Step 5: GitHub එකට ඔයාගේ AWS Account එකට යන්න අවසර (Credentials) දෙනවා
     - name: Configure AWS Credentials
