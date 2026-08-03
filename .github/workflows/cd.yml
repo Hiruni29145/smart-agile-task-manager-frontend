@@ -1,0 +1,44 @@
+name: CD Pipeline (Deploy to AWS S3)
+
+# 1. Trigger එක: මේක run වෙන්නේ 'main' branch එකට code එක push/merge කරාම විතරයි!
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Code එක Checkout කරනවා
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # Step 2: Server එකේ Node.js setup කරනවා
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    # Step 3: Packages (dependencies) ටික install කරනවා
+    - name: Install Dependencies
+      run: npm ci
+
+    # Step 4: Project එක Build කරනවා (production-ready files ටික dist/ folder එකට හැදෙනවා)
+    - name: Build Project
+      run: npm run build
+
+    # Step 5: GitHub එකට ඔයාගේ AWS Account එකට යන්න අවසර (Credentials) දෙනවා
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # Step 6: Build කරපු files ටික AWS S3 Bucket එකට upload කරනවා
+    # (--delete කෑල්ලෙන් කරන්නේ අලුත් files දාන ගමන්, පරණ අනවශ්‍ය files S3 එකෙන් අයින් කරන එකයි)
+    - name: Deploy to AWS S3
+      run: |
+        aws s3 sync dist/ s3://${{ secrets.AWS_S3_BUCKET_NAME }} --delete

@@ -1,0 +1,38 @@
+name: CI Pipeline
+
+# 1. මේ Workflow එක run වෙන්න ඕනේ කොයි වෙලාවටද? (The Trigger)
+on:
+  push:
+    branches: [ "main", "dev" ] # main හෝ dev branch එකට push කරද්දී
+  pull_request:
+    branches: [ "main", "dev" ] # main හෝ dev branch එකට PR එකක් open කරද්දී
+
+jobs:
+  build-and-test:
+    # 2. GitHub එකෙන් අපිට දෙන Virtual Server එකේ OS එක
+    runs-on: ubuntu-latest 
+
+    steps:
+    # Step 1: Server එකට ඔයාගේ code එක GitHub එකෙන් download (checkout) කරගන්නවා
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # Step 2: ඒ Server එක ඇතුලේ Node.js install කරනවා (Version 20)
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm' # කලින් install කරපු packages cache කරලා තියාගන්නවා ඊළඟ පාර fast වෙන්න
+
+    # Step 3: Packages (dependencies) ටික install කරගන්නවා
+    # (CI/CD servers වල npm install වෙනුවට 'npm ci' පාවිච්චි කරනවා, ඒක වඩාත් නිවැරදි සහ වේගවත් නිසා)
+    - name: Install Dependencies
+      run: npm ci
+
+    # Step 4: Code එකේ syntax වැරදි තියෙනවද කියලා check කරනවා (Linting)
+    - name: Run Linting
+      run: npm run lint
+
+    # Step 5: Project එකේ error එකක් නැතුව හරියට Build වෙනවද කියලා check කරනවා
+    - name: Test Build
+      run: npm run build
