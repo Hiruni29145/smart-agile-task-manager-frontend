@@ -3,7 +3,8 @@ name: CD Pipeline (Deploy to AWS S3)
 # 1. Trigger එක: මේක run වෙන්නේ 'main' branch එකට code එක push/merge කරාම විතරයි!
 on:
   push:
-    branches: [ "dev" ]
+    branches: 
+    - dev
 
 jobs:
   deploy:
