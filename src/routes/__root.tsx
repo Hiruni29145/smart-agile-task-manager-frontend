@@ -1,9 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet, createRootRouteWithContext, useRouter,
-  HeadContent, Scripts,
 } from "@tanstack/react-router";
-import appCss from "../styles.css?url";
 import { ThemeProvider } from "@/lib/theme";
 import { RoleProvider } from "@/lib/role";
 import { Toaster } from "@/components/ui/sonner";
@@ -43,35 +41,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Agilix — AI Sprint OS" },
-      { name: "description", content: "AI-powered Agile project management for software teams." },
-      { property: "og:title", content: "Agilix — AI Sprint OS" },
-      { name: "twitter:title", content: "Agilix — AI Sprint OS" },
-      { property: "og:description", content: "AI-powered Agile project management for software teams." },
-      { name: "twitter:description", content: "AI-powered Agile project management for software teams." },
-      { name: "twitter:card", content: "summary" },
-      { property: "og:type", content: "website" },
-    ],
-    links: [{ rel: "stylesheet", href: appCss }],
-  }),
-  shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
 });
-
-function RootShell({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" className="dark">
-      <head><HeadContent /></head>
-      <body>{children}<Scripts /></body>
-    </html>
-  );
-}
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();

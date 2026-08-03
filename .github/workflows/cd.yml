@@ -3,7 +3,7 @@ name: CD Pipeline (Deploy to AWS S3)
 # 1. Trigger එක: මේක run වෙන්නේ 'main' branch එකට code එක push/merge කරාම විතරයි!
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "dev" ]
 
 jobs:
   deploy:
@@ -28,6 +28,9 @@ jobs:
     # Step 4: Project එක Build කරනවා (production-ready files ටික dist/ folder එකට හැදෙනවා)
     - name: Build Project
       run: npm run build
+      env:
+        VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+        VITE_AI_API_URL: ${{ secrets.VITE_AI_API_URL }}
 
     # Step 5: GitHub එකට ඔයාගේ AWS Account එකට යන්න අවසර (Credentials) දෙනවා
     - name: Configure AWS Credentials
