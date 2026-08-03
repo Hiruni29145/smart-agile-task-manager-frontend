@@ -6,8 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useRole, type Role } from "@/lib/role";
-import { useTheme } from "@/lib/theme";
-import { Moon, Sun } from "lucide-react";
 import { useLogin } from "@/hooks/queries/useAuth";
 
 import { toast } from "sonner";
@@ -17,7 +15,6 @@ export const Route = createFileRoute("/")({ component: Login });
 function Login() {
   const navigate = useNavigate();
   const { setRole } = useRole();
-  const { theme, toggle } = useTheme();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -108,12 +105,6 @@ function Login() {
 
       {/* RIGHT: Login card */}
       <div className="flex items-center justify-center p-6 lg:p-10 relative">
-        <button
-          onClick={toggle}
-          className="absolute top-6 right-6 size-9 grid place-items-center rounded-md border hover:bg-muted transition"
-        >
-          {theme === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
-        </button>
         <form onSubmit={submit} className="w-full max-w-md space-y-6">
           <div className="space-y-2 lg:hidden">
             <div className="flex items-center gap-2">
