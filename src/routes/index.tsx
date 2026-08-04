@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Sparkles, Zap, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,7 @@ function Login() {
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Checkbox defaultChecked disabled={loginMutation.isPending} /> Remember me
               </label>
-              <button type="button" className="text-sm text-primary hover:underline">Forgot password?</button>
+              <Link to="/forgot-password" className="text-sm text-primary hover:underline">Forgot password?</Link>
             </div>
           </div>
 

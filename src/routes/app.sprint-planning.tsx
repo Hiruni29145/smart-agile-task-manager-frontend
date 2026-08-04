@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Target, Plus, Download, FileSpreadsheet, FileText, ChevronLeft, ChevronRight, Loader2, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Calendar, Target, Plus, Download, FileSpreadsheet, FileText, ChevronLeft, ChevronRight, Loader2, Sparkles, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/sprint-planning")({ component: SprintPlanning });
 
@@ -184,8 +185,9 @@ function SprintPlanning() {
   // Create Sprint Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newSprintData, setNewSprintData] = useState({ projectId: '', name: '', sprintNo: '', startDate: '', endDate: '' });
+  const [sprintToDelete, setSprintToDelete] = useState<number | null>(null);
 
-  const limit = 10;
+  const limit = 5;
   const queryClient = useQueryClient();
 
   // Fetch Projects dynamically
@@ -204,8 +206,8 @@ function SprintPlanning() {
   }, [projects, selectedProject]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['sprints', page, limit],
-    queryFn: () => apiClient<PaginatedResponse<Sprint>>(`/api/v1/sprints?page=${page}&limit=${limit}`)
+    queryKey: ['sprints'],
+    queryFn: () => apiClient<PaginatedResponse<Sprint>>(`/api/v1/sprints?page=1&limit=50`)
   });
 
   const updateSprintStatus = useMutation({
@@ -231,15 +233,59 @@ function SprintPlanning() {
         body: JSON.stringify(newSprint)
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (response: any) => {
       toast.success("Sprint created successfully!");
       setIsCreateOpen(false);
       setNewSprintData({ projectId: '', name: '', sprintNo: '', startDate: '', endDate: '' });
       setPage(1); // Reset to first page to see the newly created sprint
-      await queryClient.invalidateQueries({ queryKey: ['sprints'] });
+      
+      const newSprint = response?.data;
+      if (newSprint) {
+        queryClient.setQueryData(['sprints'], (old: any) => {
+          if (!old || !old.data || !old.data.items) return old;
+          return {
+            ...old,
+            data: {
+              ...old.data,
+              items: [newSprint, ...old.data.items]
+            }
+          };
+        });
+      }
+      
+      // Still invalidate in the background to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['sprints'] });
     },
     onError: () => {
       toast.error("Failed to create sprint.");
+    }
+  });
+
+  const deleteSprintMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiClient(`/api/v1/sprints/${id}`, {
+        method: 'DELETE'
+      });
+    },
+    onSuccess: (_, deletedId) => {
+      toast.success("Sprint deleted successfully!");
+      
+      queryClient.setQueryData(['sprints'], (old: any) => {
+        if (!old || !old.data || !old.data.items) return old;
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            items: old.data.items.filter((s: Sprint) => s.id !== deletedId)
+          }
+        };
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ['sprints'] });
+      setSprintToDelete(null);
+    },
+    onError: () => {
+      toast.error("Failed to delete sprint.");
     }
   });
 
@@ -260,10 +306,21 @@ function SprintPlanning() {
   };
 
   const allSprints = data?.data?.items || [];
-  const sprints = selectedProject 
+  const projectSprints = selectedProject 
     ? allSprints.filter(s => s.projectId === selectedProject) 
     : allSprints;
-  const meta = data?.data?.meta;
+    
+  const totalPages = Math.ceil(projectSprints.length / limit) || 1;
+  const sprints = projectSprints.slice((page - 1) * limit, page * limit);
+  
+  const meta = {
+    page,
+    limit,
+    total: projectSprints.length,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPreviousPage: page > 1
+  };
 
   const toggleSprint = (id: number) => {
     setExpandedSprints(prev => ({ ...prev, [id]: !prev[id] }));
@@ -293,7 +350,14 @@ function SprintPlanning() {
               {projects.map((p) => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button onClick={() => setIsCreateOpen(true)} className="gap-2 shadow-sm">
+          <Button 
+            onClick={() => {
+              setNewSprintData(prev => ({ ...prev, projectId: selectedProject ? selectedProject.toString() : '' }));
+              setIsCreateOpen(true);
+            }} 
+            className="gap-2 shadow-sm"
+            disabled={isProjectsLoading}
+          >
             <Plus className="size-4" /> Create Sprint
           </Button>
         </div>
@@ -416,6 +480,14 @@ function SprintPlanning() {
                         {isExpanded ? 'Hide Tasks' : 'View Tasks'}
                         {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
                       </Button>
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-1"
+                        onClick={(e) => { e.stopPropagation(); setSprintToDelete(s.id); }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -497,6 +569,7 @@ function SprintPlanning() {
               <Input 
                 id="sprintNo" 
                 type="number" 
+                min="1"
                 placeholder="e.g. 1" 
                 value={newSprintData.sprintNo}
                 onChange={e => setNewSprintData({...newSprintData, sprintNo: e.target.value})}
@@ -528,12 +601,41 @@ function SprintPlanning() {
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={createSprintMutation.isPending}>
-                {createSprintMutation.isPending ? "Creating..." : "Create Sprint"}
+                {createSprintMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</>
+                ) : (
+                  "Create Sprint"
+                )}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!sprintToDelete} onOpenChange={(open) => !open && setSprintToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this sprint. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSprintMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.preventDefault();
+                sprintToDelete && deleteSprintMutation.mutate(sprintToDelete);
+              }}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              disabled={deleteSprintMutation.isPending}
+            >
+              {deleteSprintMutation.isPending ? <><Loader2 className="size-4 mr-2 animate-spin" /> Deleting...</> : "Delete Sprint"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

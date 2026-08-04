@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as DevRouteImport } from './routes/dev'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
@@ -27,6 +29,16 @@ import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppBacklogRouteImport } from './routes/app.backlog'
 import { Route as AppAiCenterRouteImport } from './routes/app.ai-center'
 
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevRoute = DevRouteImport.update({
   id: '/dev',
   path: '/dev',
@@ -117,6 +129,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/dev': typeof DevRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/app/ai-center': typeof AppAiCenterRoute
   '/app/backlog': typeof AppBacklogRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -136,6 +150,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/dev': typeof DevRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/app/ai-center': typeof AppAiCenterRoute
   '/app/backlog': typeof AppBacklogRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -156,6 +172,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/dev': typeof DevRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/app/ai-center': typeof AppAiCenterRoute
   '/app/backlog': typeof AppBacklogRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -177,6 +195,8 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/dev'
+    | '/forgot-password'
+    | '/reset-password'
     | '/app/ai-center'
     | '/app/backlog'
     | '/app/dashboard'
@@ -196,6 +216,8 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/dev'
+    | '/forgot-password'
+    | '/reset-password'
     | '/app/ai-center'
     | '/app/backlog'
     | '/app/dashboard'
@@ -215,6 +237,8 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/dev'
+    | '/forgot-password'
+    | '/reset-password'
     | '/app/ai-center'
     | '/app/backlog'
     | '/app/dashboard'
@@ -235,10 +259,26 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   DevRoute: typeof DevRouteWithChildren
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev': {
       id: '/dev'
       path: '/dev'
@@ -409,6 +449,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   DevRoute: DevRouteWithChildren,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
